@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Siswa - Web Assessment</title>
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        .exam-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .exam-list {
+            margin-top: 30px;
+        }
+        
+        .exam-item {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .exam-info h3 {
+            color: #333;
+            margin-bottom: 5px;
+        }
+        
+        .exam-info p {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .btn-start {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: opacity 0.3s;
+        }
+        
+        .btn-start:hover {
+            opacity: 0.9;
+        }
+        
+        .btn-start:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .exam-status {
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .status-selesai {
+            background: #28a745;
+            color: white;
+        }
+        
+        .status-belum {
+            background: #ffc107;
+            color: #333;
+        }
+        
+        .timer {
+            font-size: 24px;
+            font-weight: bold;
+            color: #ff4757;
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .question-container {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            margin-top: 20px;
+        }
+        
+        .question-number {
+            font-size: 18px;
+            color: #666;
+            margin-bottom: 10px;
+        }
+        
+        .question-text {
+            font-size: 20px;
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+        
+        .options {
+            margin: 20px 0;
+        }
+        
+        .option {
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .option:hover {
+            background: #f8f9fa;
+        }
+        
+        .option.selected {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: transparent;
+        }
+        
+        .short-answer input,
+        .essay-answer textarea {
+            width: 100%;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        
+        .essay-answer textarea {
+            min-height: 200px;
+            resize: vertical;
+        }
+        
+        .navigation-buttons {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 30px;
+        }
+        
+        .nav-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: opacity 0.3s;
+        }
+        
+        .nav-btn.prev {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .nav-btn.next {
+            background: #007bff;
+            color: white;
+        }
+        
+        .nav-btn.submit {
+            background: #28a745;
+            color: white;
+        }
+        
+        .question-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        .question-grid-item {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        
+        .question-grid-item.answered {
+            background: #28a745;
+            color: white;
+            border-color: #28a745;
+        }
+        
+        .question-grid-item.current {
+            border: 2px solid #007bff;
+            transform: scale(1.1);
+        }
+  .question-image {
+        margin: 15px 0;
+        text-align: center;
+        border: 1px solid #eee;
+        padding: 10px;
+        border-radius: 5px;
+        background: #f9f9f9;
+    }
+    
+    .question-image img {
+        max-width: 100%;
+        max-height: 300px;
+        object-fit: contain;
+    }
+    
+    .option {
+        display: flex;
+        align-items: center;
+        padding: 15px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        margin-bottom: 10px;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+    
+    .option:hover {
+        background: #f8f9fa;
+    }
+    
+    .option.selected {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-color: transparent;
+    }
+    
+    .option-marker {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: #f0f0f0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 15px;
+        font-weight: bold;
+    }
+    
+    .selected .option-marker {
+        background: white;
+        color: #667eea;
+    }
+    
+    .option-text {
+        flex: 1;
+    }
+/* Style untuk gambar soal */
+.question-image-container {
+    background: #f9f9f9;
+    border-radius: 8px;
+    padding: 15px;
+    margin: 15px 0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.question-image {
+    cursor: pointer;
+    transition: transform 0.3s;
+    max-width: 100%;
+    max-height: 300px;
+    object-fit: contain;
+}
+
+.question-image:hover {
+    transform: scale(1.05);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+/* Style untuk modal gambar */
+#imageModal {
+    animation: fadeIn 0.3s;
+}
+
+#imageModal img {
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}
+
+#imageModal span {
+    font-weight: bold;
+    transition: color 0.3s;
+}
+
+#imageModal span:hover {
+    color: #ff4444;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <nav class="navbar">
+            <div class="nav-brand">Assesment Sumatif Akhir Tahun
+<p>SDN Gambirono 01</p>
+<p>Tahun Ajaran 2025/2026</p>
+</div>
+            <div class="nav-user">
+                <span id="userName">Loading...</span>
+                <button class="btn-logout" onclick="logout()">Logout</button>
+            </div>
+        </nav>
+        
+        <div class="dashboard-content">
+            <div id="kelasInfo" class="kelas-info">
+                <h2>Kelas: <span id="kelasSiswa">-</span></h2>
+            </div>
+            
+            <!-- Menu Utama Siswa -->
+            <div id="mainMenu">
+                <h2>Pilih Mata Pelajaran</h2>
+                <div class="card-container" id="subjectList">
+                    <!-- Akan diisi JavaScript -->
+                </div>
+            </div>
+            
+            <!-- Halaman Ujian -->
+            <div id="examPage" style="display: none;">
+                <div class="exam-header">
+                    <h2 id="examSubject"></h2>
+                    <div class="timer" id="timer">60:00</div>
+                </div>
+                
+                <div class="exam-container">
+                    <div class="question-container" id="questionContainer">
+                        <!-- Akan diisi JavaScript -->
+                    </div>
+                    
+                    <div class="question-grid" id="questionGrid">
+                        <!-- Akan diisi JavaScript -->
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Halaman Hasil -->
+            <div id="resultPage" style="display: none;">
+                <h2>Hasil Ujian</h2>
+                <div class="card-container">
+                    <div class="card">
+                        <h3>Nilai PG</h3>
+                        <p id="resultPG">0</p>
+                    </div>
+                    <div class="card">
+                        <h3>Nilai Isian</h3>
+                        <p id="resultIsian">0</p>
+                    </div>
+                    <div class="card">
+                        <h3>Nilai Uraian</h3>
+                        <p id="resultUraian">0</p>
+                    </div>
+                    <div class="card">
+                        <h3>Total Nilai</h3>
+                        <p id="resultTotal">0</p>
+                    </div>
+                </div>
+                
+                <button class="btn btn-primary" onclick="backToMenu()">Kembali ke Menu</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="js/firebase-config.js"></script>
+    <script src="js/dashboard-siswa.js"></script>
+</body>
+</html>

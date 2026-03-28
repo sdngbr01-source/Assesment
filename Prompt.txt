@@ -1,0 +1,74 @@
+buatkan saya Web Asesment
+dasboard
+Login admin
+Login user
+
+1. Dasboard User
+Dasboard Pilih Kelas 
+log in Siswa - ter koneksi dengan Firestore database
+Pilih Mata Pelajaran
+Mulai Pengerjaan
+2. Dashboard Admin
+Tab Management Kelas
+untuk menambah Kelas yang mengikuti ujian
+Tab Management User
+       Pilih Kelas upload database siswa
+Tab Manajemen Soal ( Pilihan Ganda, Isian Singkat, Uraian)
+       Kelas
+       Matapelajaran
+       Upload xls
+	Junis Soal I: Pilihan Ganda
+	           II: Isian Singkat
+		   III: Essay (Uraian)
+	Jenis soal|Soal|A|B|C|D|Jawaban|Tautan img
+
+Tab Setting Soal dan Setting Nilai
+     Pilih Kelas (Sesuai yang diinputkan di tabmanagemen kelas)
+     -Banyak Soal
+    Pilihan Ganda
+    Isian Singkat
+    Uraian
+    Nilai Per Soal 
+        - Pilihan Ganda Setiap soal dengan Jawaban Benar Mendapat nilai ...
+    	- Isian Singkat Setiap soal dengan Jawaban Benar Mendapat nilai ...
+	- Uraian
+Tab Manajemen Nilai
+ Filter Per Kelas
+Filter Per Siswa
+ - hasil nilai jawaban benar Pilihan ganda
+ - Hasil nilai isian
+ - Hasil Nilai Essay (hasil dari koreksi Essay)
+ - Nilai Kumulatif
+
+Tab Koreksi Jawaban Essay
+  Tampilkan Jawaban filter by Siswa
+  Jawaban Siswa No|Soal|Jawaban|Jawaban Siswa|KUnci Jawaban|Nilai|Simpan
+
+Tab Download laporan Niai
+- Download Per Kelas 
+Matapelajaran No|Nama|Mata Pelajaran|Pilihan Ganda|Isian|Uraian
+- Generate Lembar Jawaban Siswa
+  Pilih Kelas 
+  Generate-Donload PDF 
+  Nama :
+  Kelas   :
+  Mata pelajaran :
+  Nilai PG :
+  Nilai Isian :
+  Nilai Uraian : (Sesuai Hasil Tab Koreksi Jawaban Essay)
+  Total Nilai
+Jawaban
+1 A B C D (Jika Jawaban Siswa Benar Lingkari Hijau/ Jila Salah Jawaban Siswa Lingkari Merah dan Beri Lingkaran Hijau pada Jawaban yang Benar
+2. Isian (Jika benar Maka tidak usah memberi tanda centang di samping jawaban/ jika salah strip merah lalu jawaban yang benar disampingnya dengan warna hijau.
+3. Uraian Sesuai Hasil Tab Koreksi Di Tab Koreksi Jawaban Essay
+Hasil Generate Berupa PDF Semua Siswa yang tercatat di Kelas Tersebut
+
+
+
+buat filenya lengkap ya jangan separuh searuh atau hanya beberapa fitur 
+USahakan semua fitur dan fungsi berjalan dengan benar
+buat full color dan dilaman log in siswa tampilkan foto dan identitas 
+dasboard berlogo buat semenarik mungkin
+bedakan file html,js,css,agar mudah dalam pengembangan dan bugs
+kalo bisa jangan sampai bugs
+support tampilan mobile(hanphone)

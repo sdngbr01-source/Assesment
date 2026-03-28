@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Admin - Web Assessment</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/admin.css">
+    
+    <!-- Tambahkan CSS untuk connection status -->
+    <style>
+        .connection-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+            margin-right: 15px;
+            background: #f8f9fa;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        
+        .status-connected {
+            background: #d4edda;
+            color: #155724;
+            border-color: #c3e6cb;
+        }
+        
+        .status-connected .status-dot {
+            background: #28a745;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-disconnected {
+            background: #f8d7da;
+            color: #721c24;
+            border-color: #f5c6cb;
+        }
+        
+        .status-disconnected .status-dot {
+            background: #dc3545;
+        }
+        
+        .status-checking {
+            background: #fff3cd;
+            color: #856404;
+            border-color: #ffeeba;
+        }
+        
+        .status-checking .status-dot {
+            background: #ffc107;
+            animation: blink 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.1); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        
+        @keyframes blink {
+            0% { opacity: 1; }
+            50% { opacity: 0.3; }
+            100% { opacity: 1; }
+        }
+        
+        /* Toast notification */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+        }
+        
+        .toast {
+            background: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 300px;
+            animation: slideIn 0.3s;
+            border-left: 4px solid;
+        }
+        
+        .toast-success { border-left-color: #28a745; }
+        .toast-error { border-left-color: #dc3545; }
+        
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <nav class="navbar">
+            <div class="nav-brand">Web Assessment - Admin</div>
+            <div class="nav-user">
+                <!-- Status Firebase Connection -->
+                <div id="firebaseStatus" class="connection-status status-checking">
+                    <span class="status-dot" id="statusDot"></span>
+                    <span id="statusText">Mengecek koneksi...</span>
+                </div>
+                
+                <span id="userName">Loading...</span>
+                <button class="btn-logout" onclick="logout()">Logout</button>
+            </div>
+        </nav>
+        
+        <div class="dashboard-content">
+            <div class="tabs">
+		<button class="tab-btn" onclick="switchTab('kelas')">Manajemen Kelas</button>
+                <button class="tab-btn active" onclick="switchTab('user')">Manajemen User</button>
+		 
+                <button class="tab-btn" onclick="switchTab('soal')">Manajemen Soal</button>
+                <button class="tab-btn" onclick="switchTab('setting')">Setting Soal & Nilai</button>
+                <button class="tab-btn" onclick="switchTab('nilai')">Manajemen Nilai</button>
+                <button class="tab-btn" onclick="switchTab('koreksi')">Koreksi Essay</button>
+                <button class="tab-btn" onclick="switchTab('laporan')">Download Laporan</button>
+            </div>
+            
+            <!-- Toast Container untuk notifikasi -->
+            <div id="toastContainer" class="toast-container"></div>
+            <!-- Tab Manajemen Kelas -->
+<div id="tab-kelas" class="tab-content">
+    <h2>Manajemen Kelas</h2>
+    
+    <div class="card-container">
+        <!-- Form Tambah Kelas -->
+        <div class="card">
+            <h3>➕ Tambah Kelas Baru</h3>
+            <form id="tambahKelasForm" onsubmit="return tambahKelas(event)">
+                <div class="form-group">
+                    <label>Nama Kelas</label>
+                    <input type="text" id="namaKelas" required placeholder="Contoh: 5A, 5B, 6A, 4A">
+                    <small style="color: #666;">Format: Angka + Huruf (contoh: 4A, 4B, 4C)</small>
+                </div>
+                
+                <div class="form-group">
+    <label>Tingkatan Kelas</label>
+    <select id="tingkatanKelas" required>
+        <option value="">Pilih Tingkatan</option>
+        <option value="1">Kelas 1 SD</option>
+        <option value="2">Kelas 2 SD</option>
+        <option value="3">Kelas 3 SD</option>
+        <option value="4">Kelas 4 SD</option>
+        <option value="5">Kelas 5 SD</option>
+        <option value="6">Kelas 6 SD</option>
+    </select>
+</div>
+                
+                <div class="form-group">
+                    <label>Wali Kelas (Opsional)</label>
+                    <input type="text" id="waliKelas" placeholder="Nama wali kelas">
+                </div>
+                
+                <div class="form-group">
+                    <label>Status</label>
+                    <select id="statusKelas">
+                        <option value="aktif">Aktif</option>
+                        <option value="nonaktif">Nonaktif</option>
+                    </select>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">Simpan Kelas</button>
+            </form>
+        </div>
+        
+        <!-- Daftar Kelas -->
+        <div class="card" style="margin-top: 20px;">
+            <h3>📋 Daftar Kelas</h3>
+            <div class="filter-bar" style="margin-bottom: 15px;">
+                <select id="filterStatusKelas" class="filter-select" onchange="loadKelas()">
+                    <option value="">Semua Status</option>
+                    <option value="aktif">Aktif</option>
+                    <option value="nonaktif">Nonaktif</option>
+                </select>
+                <button class="btn btn-warning" onclick="exportKelasToExcel()">📊 Export ke Excel</button>
+            </div>
+            
+            <div class="table-container">
+                <table id="kelasTable">
+                    <thead>
+                        <tr>
+                            <th>No</th>
+                            <th>Nama Kelas</th>
+                            <th>Tingkatan</th>
+                            <th>Wali Kelas</th>
+                            <th>Jumlah Siswa</th>
+                            <th>Status</th>
+                            <th>Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="kelasTableBody">
+                        <tr><td colspan="7" style="text-align: center;">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+            <!-- Tab Manajemen User -->
+            <div id="tab-user" class="tab-content active">
+                <h2>Manajemen User</h2>
+                <div class="filter-bar">
+                    <!-- Contoh update untuk filter kelas di tab user -->
+			<select id="filterKelasUser" class="filter-select">
+   			 <option value="">Semua Kelas</option>
+    			<!-- Akan diisi dinamis oleh JavaScript -->
+			</select>
+                    <button class="btn btn-primary" onclick="showUploadModal()">📤 Upload Data Siswa</button>
+                    <button class="btn btn-success" onclick="downloadTemplate()">📥 Download Template</button>
+                </div>
+                
+                <div class="table-container">
+                    <table id="userTable">
+                        <thead>
+                            <tr>
+                                <th>No</th>
+                                <th>NIS</th>
+                                <th>Nama</th>
+                                <th>Kelas</th>
+                                <th>Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="userTableBody">
+                            <tr><td colspan="5" style="text-align: center;">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Tab Manajemen Soal -->
+            <div id="tab-soal" class="tab-content">
+                <h2>Manajemen Soal</h2>
+                <div class="filter-bar">
+                    <!-- Update untuk filter kelas di tab soal -->
+			<select id="filterKelasSoal" class="filter-select">
+    			<option value="">Pilih Kelas</option>
+    			<!-- Akan diisi dinamis oleh JavaScript -->
+			</select>
+                    <select id="filterMapelSoal" class="filter-select">
+                        <option value="">Pilih Mata Pelajaran</option>
+                        <option value="Matematika">Matematika</option>
+                        <option value="Bahasa Indonesia">Bahasa Indonesia</option>
+                        <option value="IPA">IPA</option>
+                        <option value="IPS">IPS</option>
+                        <option value="PPKn">PPKn</option>
+                        <option value="PJOK">PJOK</option>
+                        <option value="SBdP">SBdP</option>
+                    </select>
+                    <button class="btn btn-primary" onclick="showUploadSoalModal()">📤 Upload Soal</button>
+                </div>
+                
+                <div class="table-container">
+                    <table id="soalTable">
+                        <thead>
+                            <tr>
+                                <th>No</th>
+                                <th>Kelas</th>
+                                <th>Mapel</th>
+                                <th>Tipe</th>
+                                <th>Soal</th>
+                                <th>Gambar</th>
+                                <th>Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="soalTableBody">
+                            <tr><td colspan="7" style="text-align: center;">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Tab Setting Soal & Nilai -->
+            <div id="tab-setting" class="tab-content">
+                <h2>Setting Soal & Nilai</h2>
+                <div class="card-container">
+                    <div class="card">
+<!-- Di dalam tab-setting, setelah form -->
+<div class="card" style="margin-top: 20px;">
+    <h3>📋 Daftar Ujian Aktif</h3>
+    <div class="table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>No</th>
+                    <th>Kelas</th>
+                    <th>Mata Pelajaran</th>
+                    <th>Komposisi Soal</th>
+                    <th>Nilai Maks</th>
+                    <th>Durasi</th>
+                    <th>Status</th>
+                    <th>Aksi</th>
+                </tr>
+            </thead>
+            <tbody id="examListBody">
+                <tr><td colspan="8" style="text-align: center;">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+                        <h3>Setting Ujian Baru</h3>
+                        <form id="examSettingForm">
+                            <div class="form-group">
+                                <label>Kelas</label>
+                                <!-- Update untuk filter kelas di tab setting -->
+				<select id="settingKelas" required>
+    				<option value="">Pilih Kelas</option>
+    				<!-- Akan diisi dinamis oleh JavaScript -->
+				</select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Mata Pelajaran</label>
+                                <select id="settingMapel" required>
+                                    <option value="">Pilih Mapel</option>
+                                    <option value="Matematika">Matematika</option>
+                                    <option value="Bahasa Indonesia">Bahasa Indonesia</option>
+                                    <option value="IPA">IPA</option>
+                                    <option value="IPS">IPS</option>
+                                    <option value="PPKn">PPKn</option>
+                                    <option value="PJOK">PJOK</option>
+                                    <option value="SBdP">SBdP</option>
+                                </select>
+                            </div>
+                            
+                            <h4>Jumlah Soal</h4>
+                            <div class="form-group">
+                                <label>Pilihan Ganda</label>
+                                <input type="number" id="jmlPG" min="0" value="10">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Isian Singkat</label>
+                                <input type="number" id="jmlIsian" min="0" value="5">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Uraian</label>
+                                <input type="number" id="jmlUraian" min="0" value="3">
+                            </div>
+                            
+                            <h4>Nilai Per Soal</h4>
+                            <div class="form-group">
+                                <label>Nilai Pilihan Ganda</label>
+                                <input type="number" id="nilaiPG" min="0" value="1">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Nilai Isian</label>
+                                <input type="number" id="nilaiIsian" min="0" value="2">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Nilai Uraian</label>
+                                <input type="number" id="nilaiUraian" min="0" value="3">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Durasi (menit)</label>
+                                <input type="number" id="durasi" min="1" value="60">
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary">Simpan Setting</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Tab Manajemen Nilai -->
+            <div id="tab-nilai" class="tab-content">
+                <h2>Manajemen Nilai</h2>
+                <div class="filter-bar">
+                    <!-- Update untuk filter kelas di tab nilai -->
+			<select id="filterKelasNilai" class="filter-select">
+    			<option value="">Semua Kelas</option>
+    			<!-- Akan diisi dinamis oleh JavaScript -->
+			</select>
+                    <select id="filterMapelNilai" class="filter-select">
+                        <option value="">Semua Mapel</option>
+                        <option value="Matematika">Matematika</option>
+                        <option value="Bahasa Indonesia">Bahasa Indonesia</option>
+                        <option value="IPA">IPA</option>
+                        <option value="IPS">IPS</option>
+                        <option value="PPKn">PPKn</option>
+                        <option value="PJOK">PJOK</option>
+                        <option value="SBdP">SBdP</option>
+                    </select>
+                    <input type="text" id="searchSiswa" placeholder="Cari siswa..." class="filter-select">
+                    <button class="btn btn-primary" onclick="loadNilai()">Filter</button>
+                </div>
+                
+                <div class="table-container">
+                    <table id="nilaiTable">
+                        <thead>
+                            <tr>
+                                <th>No</th>
+                                <th>Nama</th>
+                                <th>Kelas</th>
+                                <th>Mapel</th>
+                                <th>PG</th>
+                                <th>Isian</th>
+                                <th>Uraian</th>
+                                <th>Total</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="nilaiTableBody">
+                            <tr><td colspan="9" style="text-align: center;">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Tab Koreksi Essay -->
+            <div id="tab-koreksi" class="tab-content">
+                <h2>Koreksi Jawaban Essay</h2>
+                <div class="filter-bar">
+                    <!-- Update untuk filter kelas di tab koreksi -->
+			<select id="filterKelasKoreksi" class="filter-select">
+    			<option value="">Pilih Kelas</option>
+    			<!-- Akan diisi dinamis oleh JavaScript -->
+			</select>
+                    <select id="filterSiswaKoreksi" class="filter-select">
+                        <option value="">Pilih Siswa</option>
+                    </select>
+                    <button class="btn btn-primary" onclick="loadJawabanKoreksi()">Tampilkan</button>
+                </div>
+                
+                <div id="jawabanList" class="jawaban-list">
+                    <!-- Akan diisi JavaScript -->
+                </div>
+            </div>
+            
+            <!-- Tab Download Laporan - Update bagian logo -->
+<div id="tab-laporan" class="tab-content">
+    <h2>Download Laporan</h2>
+    
+    <!-- Setting Header PDF dengan Upload Logo -->
+    <div class="card" style="margin-top: 20px;">
+        <h3>📄 Setting Header PDF Lembar Jawaban</h3>
+        <form id="pdfSettingForm" style="margin-top: 15px;">
+            <div class="row" style="display: flex; gap: 20px; flex-wrap: wrap;">
+                <div class="col-6" style="flex: 1; min-width: 250px;">
+                    <div class="form-group">
+                        <label>Nama Sekolah (bisa lebih dari 1 baris, gunakan Enter untuk baris baru)</label>
+                        <textarea id="sekolahNama" class="filter-input" rows="3" placeholder="SD NEGERI 01 JAKARTA&#10;TERAKREDITASI A"></textarea>
+                        <small style="color: #666;">Gunakan Enter untuk membuat baris baru</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Alamat Sekolah (bisa lebih dari 1 baris)</label>
+                        <textarea id="sekolahAlamat" class="filter-input" rows="2" placeholder="Jl. Pendidikan No. 123&#10;Kel. Menteng, Kec. Menteng"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Kota/Kabupaten</label>
+                        <input type="text" id="sekolahKota" class="filter-input" placeholder="Jakarta Pusat">
+                    </div>
+                    <div class="form-group">
+                        <label>Telepon</label>
+                        <input type="text" id="sekolahTelp" class="filter-input" placeholder="(021) 12345678">
+                    </div>
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" id="sekolahEmail" class="filter-input" placeholder="info@sekolah.sch.id">
+                    </div>
+                </div>
+                <div class="col-6" style="flex: 1; min-width: 250px;">
+                    <!-- Logo Kiri dengan Upload -->
+                    <div class="form-group">
+                        <label>Logo Kiri</label>
+                        <div class="logo-upload-area" onclick="document.getElementById('logoKiriInput').click()" style="border: 2px dashed #ccc; padding: 15px; text-align: center; cursor: pointer; border-radius: 8px; margin-bottom: 10px; background: #f8f9fa;">
+                            <div id="logoKiriPreview" style="margin-bottom: 10px;">
+                                <img id="logoKiriImg" src="" style="max-width: 80px; max-height: 80px; display: none;">
+                            </div>
+                            <span>📁 Klik untuk upload logo kiri</span>
+                            <br>
+                            <small style="color: #666;">Format: PNG/JPG (Max 2MB)</small>
+                        </div>
+                        <input type="file" id="logoKiriInput" accept="image/*" style="display: none;" onchange="handleLogoUpload('kiri', this)">
+                        <input type="hidden" id="logoKiriData" value="">
+                    </div>
+                    
+                    <!-- Logo Kanan dengan Upload -->
+                    <div class="form-group">
+                        <label>Logo Kanan</label>
+                        <div class="logo-upload-area" onclick="document.getElementById('logoKananInput').click()" style="border: 2px dashed #ccc; padding: 15px; text-align: center; cursor: pointer; border-radius: 8px; margin-bottom: 10px; background: #f8f9fa;">
+                            <div id="logoKananPreview" style="margin-bottom: 10px;">
+                                <img id="logoKananImg" src="" style="max-width: 80px; max-height: 80px; display: none;">
+                            </div>
+                            <span>📁 Klik untuk upload logo kanan</span>
+                            <br>
+                            <small style="color: #666;">Format: PNG/JPG (Max 2MB)</small>
+                        </div>
+                        <input type="file" id="logoKananInput" accept="image/*" style="display: none;" onchange="handleLogoUpload('kanan', this)">
+                        <input type="hidden" id="logoKananData" value="">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Motto Sekolah (bisa lebih dari 1 baris)</label>
+                        <textarea id="sekolahMotto" class="filter-input" rows="2" placeholder="Berilmu, Beriman, Berakhlak Mulia&#10;Membangun Generasi Unggul"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Warna Header</label>
+                        <input type="color" id="headerWarna" class="filter-input" value="#2c3e50">
+                    </div>
+                    <div class="form-group">
+                        <label>Ukuran Logo (px)</label>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" id="logoWidth" class="filter-input" placeholder="Lebar" value="40" style="width: 80px;">
+                            <input type="number" id="logoHeight" class="filter-input" placeholder="Tinggi" value="40" style="width: 80px;">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="preview-header" style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                <h4>Preview Header:</h4>
+                <div id="pdfPreview" style="border: 1px solid #ddd; padding: 15px; background: white; border-radius: 5px; min-height: 150px;">
+                    <!-- Preview akan tampil di sini -->
+                </div>
+            </div>
+            
+            <div style="margin-top: 15px; display: flex; gap: 10px;">
+                <button type="submit" class="btn btn-primary">💾 Simpan Setting PDF</button>
+                <button type="button" class="btn btn-info" onclick="loadPdfSetting()">🔄 Muat Setting</button>
+                <button type="button" class="btn btn-warning" onclick="resetPdfSetting()">↺ Reset Default</button>
+            </div>
+        </form>
+    </div>
+    
+    <div class="card-container">
+        <div class="card">
+            <h3>Download Per Kelas</h3>
+            <div class="form-group">
+                <label>Pilih Kelas</label>
+                <select id="laporanKelas">
+                    <!-- Akan diisi dinamis oleh JavaScript -->
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Pilih Mata Pelajaran</label>
+                <select id="laporanMapel">
+                    <option value="Matematika">Matematika</option>
+                    <option value="Bahasa Indonesia">Bahasa Indonesia</option>
+                    <option value="IPA">IPA</option>
+                    <option value="IPS">IPS</option>
+                    <option value="PPKn">PPKn</option>
+                    <option value="PJOK">PJOK</option>
+                    <option value="SBdP">SBdP</option>
+                </select>
+            </div>
+            <button class="btn btn-primary" onclick="downloadLaporanKelas()">📥 Download Excel</button>
+        </div>
+        
+        <div class="card">
+            <h3>Generate Lembar Jawaban</h3>
+            <div class="form-group">
+                <label>Pilih Kelas</label>
+                <select id="generateKelas">
+                    <!-- Akan diisi dinamis oleh JavaScript -->
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Pilih Mata Pelajaran</label>
+                <select id="generateMapel">
+                    <option value="Matematika">Matematika</option>
+                    <option value="Bahasa Indonesia">Bahasa Indonesia</option>
+                    <option value="IPA">IPA</option>
+                    <option value="IPS">IPS</option>
+                    <option value="PPKn">PPKn</option>
+                    <option value="PJOK">PJOK</option>
+                    <option value="SBdP">SBdP</option>
+                </select>
+            </div>
+            <button class="btn btn-primary" onclick="generateLembarJawaban()">📥 Generate PDF</button>
+        </div>
+    </div>
+</div>
+            </div>
+            
+    
+    <!-- Modal Upload User -->
+    <div id="uploadModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Upload Data Siswa</h3>
+                <span class="close-modal" onclick="closeUploadModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+                    <div class="upload-icon">📁</div>
+                    <p>Klik untuk upload file Excel</p>
+                    <p style="font-size: 12px; color: #999;">Format: NIS, Nama, Kelas, Password</p>
+                </div>
+                <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display: none;" onchange="handleFileUpload(this)">
+            </div>
+        </div>
+    </div>
+    
+   <!-- Modal Upload Soal - Update dropdown kelas -->
+<div id="uploadSoalModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Upload Soal</h3>
+            <span class="close-modal" onclick="closeUploadSoalModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+                <button class="btn btn-success" onclick="downloadTemplateSoal()">
+                    📥 Download Template Soal
+                </button>
+            </div>
+            
+            <form id="uploadSoalForm">
+                <div class="form-group">
+                    <label>Kelas</label>
+                    <select id="uploadKelas" required>
+                        <option value="">Pilih Kelas</option>
+                        <!-- Akan diisi dinamis oleh JavaScript -->
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Mata Pelajaran</label>
+                    <select id="uploadMapel" required>
+                        <option value="">Pilih Mapel</option>
+                        <option value="Matematika">Matematika</option>
+                        <option value="Bahasa Indonesia">Bahasa Indonesia</option>
+                        <option value="IPA">IPA</option>
+                        <option value="IPS">IPS</option>
+                        <option value="PPKn">PPKn</option>
+                        <option value="PJOK">PJOK</option>
+                        <option value="SBdP">SBdP</option>
+                    </select>
+                </div>
+                
+                <div class="upload-area" onclick="document.getElementById('soalFileInput').click()">
+                    <div class="upload-icon">📁</div>
+                    <p>Klik untuk upload file Excel</p>
+                    <p style="font-size: 12px; color: #999;">
+                        Format: Tipe, Soal, Pilihan A, B, C, D, Kunci, Gambar (URL)
+                    </p>
+                </div>
+                <input type="file" id="soalFileInput" accept=".xlsx,.xls,.csv" style="display: none;" onchange="handleSoalUpload(this)">
+            </form>
+            
+            <!-- Preview Gambar -->
+            <div id="gambarPreview" style="margin-top: 20px; display: none;">
+                <h4>Preview Gambar:</h4>
+                <img id="previewImage" src="" style="max-width: 100%; max-height: 200px; border: 1px solid #ddd; border-radius: 5px;">
+            </div>
+        </div>
+    </div>
+</div>
+    
+   <!-- Firebase Libraries -->
+<script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+
+<!-- Other Libraries -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+
+<!-- Custom Scripts (Urutan penting!) -->
+<script src="js/firebase-config.js"></script>
+<script src="js/connection-status.js"></script>
+<script src="js/dashboard-admin.js"></script>
+<script src="js/management-kelas.js"></script>  <!-- Load sebelum setting-soal.js -->
+<script src="js/management-user.js"></script>
+<script src="js/management-soal.js"></script>
+
+<script src="js/setting-soal.js"></script>
+<script src="js/management-nilai.js"></script>
+<script src="js/koreksi-essay.js"></script>
+<script src="js/laporan-nilai.js"></script>
+<script src="js/pdf-setting.js"></script>  <!-- Terakhir -->
+</body>
+</html>
