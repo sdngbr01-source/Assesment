@@ -22,7 +22,7 @@ async function loadSoal(forceRefresh = false) {
         return;
     }
     
-    tbody.innerHTML = '专栏<td colspan="7" style="text-align: center;">Loading...<专栏/tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">Loading...</td></tr>';
     
     try {
         let query = questionsRef;
@@ -34,7 +34,8 @@ async function loadSoal(forceRefresh = false) {
             query = query.where('mataPelajaran', '==', mapel);
         }
         
-        query = query.orderBy('nomor', 'asc');
+        // HAPUS orderBy sementara karena index masih building
+        // query = query.orderBy('nomor', 'asc');
         
         const snapshot = await query.get();
         
@@ -42,6 +43,9 @@ async function loadSoal(forceRefresh = false) {
         snapshot.forEach(doc => {
             soals.push({ id: doc.id, ...doc.data() });
         });
+        
+        // Urutkan di JavaScript (sementara)
+        soals.sort((a, b) => (a.nomor || 0) - (b.nomor || 0));
         
         // Simpan ke cache
         soalCache = {
@@ -54,13 +58,18 @@ async function loadSoal(forceRefresh = false) {
         
     } catch (error) {
         console.error('Error loading soal:', error);
-        tbody.innerHTML = '专栏<td colspan="7" style="text-align: center; color: red;">Error: ' + error.message + '<专栏/tr>';
+        
+        if (error.message && error.message.includes('index')) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: orange;">⏳ Index sedang dibangun. Tunggu 5-10 menit lalu refresh halaman.您</tr>';
+        } else {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: red;">Error: ' + error.message + '您</tr>';
+        }
     }
 }
 
 function renderSoalTable(soals, tbody) {
     if (!soals || soals.length === 0) {
-        tbody.innerHTML = '专栏<td colspan="7" style="text-align: center;">Tidak ada data soal<专栏/tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">Tidak ada data soal</tr>';
         return;
     }
     
@@ -164,6 +173,20 @@ async function handleSoalUpload(input) {
             let success = 0;
             let failed = 0;
             
+            // Cari nomor terakhir untuk penomoran otomatis
+            const existingQuery = await questionsRef
+                .where('kelas', '==', kelas)
+                .where('mataPelajaran', '==', mapel)
+                .get();
+            
+            let lastNomor = 0;
+            existingQuery.forEach(doc => {
+                const data = doc.data();
+                if (data.nomor && data.nomor > lastNomor) {
+                    lastNomor = data.nomor;
+                }
+            });
+            
             for (const row of jsonData) {
                 if (!row.Tipe || !row.Soal) {
                     failed++;
@@ -171,15 +194,16 @@ async function handleSoalUpload(input) {
                 }
                 
                 try {
+                    lastNomor++;
                     await questionsRef.add({
                         kelas: kelas,
                         mataPelajaran: mapel,
                         tipe: row.Tipe.toLowerCase(),
                         soal: row.Soal,
-                        pilihan: row.Tipe === 'pg' ? [row.Pilihan_A, row.Pilihan_B, row.Pilihan_C, row.Pilihan_D] : [],
+                        pilihan: row.Tipe === 'pg' ? [row.Pilihan_A || '', row.Pilihan_B || '', row.Pilihan_C || '', row.Pilihan_D || ''] : [],
                         kunci: row.Kunci || '',
                         gambar: row.Gambar || '',
-                        nomor: success + failed + 1,
+                        nomor: lastNomor,
                         createdAt: firebase.firestore.FieldValue.serverTimestamp()
                     });
                     success++;
