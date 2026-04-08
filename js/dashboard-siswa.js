@@ -1,4 +1,4 @@
-// dashboard-siswa.js
+// dashboard-siswa.js - VERSI DIPERBAIKI
 
 // Ambil data user dari sessionStorage
 const currentUser = JSON.parse(sessionStorage.getItem('currentUser'));
@@ -87,14 +87,10 @@ async function startExam(examId, subjectName) {
         
         currentExam = { id: examId, ...examDoc.data() };
         
-        console.log('Data Exam:', {
-            mataPelajaran: currentExam.mataPelajaran,
-            nilaiPerSoal: currentExam.nilaiPerSoal
-        });
-        
-        // Ambil soal
+        // Ambil soal berdasarkan kelas dan mata pelajaran
         const questionsSnapshot = await questionsRef
-            .where('examId', '==', examId)
+            .where('kelas', '==', currentExam.kelas)
+            .where('mataPelajaran', '==', currentExam.mataPelajaran)
             .get();
         
         currentQuestions = questionsSnapshot.docs
@@ -105,9 +101,34 @@ async function startExam(examId, subjectName) {
             .sort((a, b) => (a.nomor || 0) - (b.nomor || 0));
         
         if (currentQuestions.length === 0) {
-            alert('Tidak ada soal untuk ujian ini');
+            alert('Tidak ada soal untuk ujian ini. Silakan hubungi guru.');
             return;
         }
+        
+        // Filter soal berdasarkan tipe yang di-setting
+        const examJumlahSoal = currentExam.jumlahSoal || {};
+        let filteredQuestions = [];
+        
+        const pgQuestions = currentQuestions.filter(q => q.tipe === 'pg');
+        const isianQuestions = currentQuestions.filter(q => q.tipe === 'isian');
+        const uraianQuestions = currentQuestions.filter(q => q.tipe === 'uraian');
+        
+        const pgCount = examJumlahSoal.pg || pgQuestions.length;
+        const isianCount = examJumlahSoal.isian || isianQuestions.length;
+        const uraianCount = examJumlahSoal.uraian || uraianQuestions.length;
+        
+        filteredQuestions = [
+            ...pgQuestions.slice(0, pgCount),
+            ...isianQuestions.slice(0, isianCount),
+            ...uraianQuestions.slice(0, uraianCount)
+        ];
+        
+        if (filteredQuestions.length === 0) {
+            alert('Tidak ada soal yang sesuai dengan konfigurasi ujian');
+            return;
+        }
+        
+        currentQuestions = filteredQuestions;
         
         // Set nilai per soal dari exam setting
         const nilaiPerSoalSetting = currentExam.nilaiPerSoal || {
@@ -116,7 +137,6 @@ async function startExam(examId, subjectName) {
             uraian: 5
         };
         
-        // Update nilai per soal
         currentQuestions = currentQuestions.map(question => {
             if (!question.nilai) {
                 if (question.tipe === 'pg') question.nilai = nilaiPerSoalSetting.pg;
@@ -125,8 +145,6 @@ async function startExam(examId, subjectName) {
             }
             return question;
         });
-        
-        console.log('Soal dengan nilai:', currentQuestions.map(q => ({tipe: q.tipe, nilai: q.nilai, nomor: q.nomor})));
         
         currentAnswers = {};
         currentQuestionIndex = 0;
@@ -169,6 +187,7 @@ function startTimer(duration) {
     }, 1000);
 }
 
+// 🔥 PERBAIKAN: Fungsi showQuestion dengan gambar yang benar
 function showQuestion() {
     const question = currentQuestions[currentQuestionIndex];
     const container = document.getElementById('questionContainer');
@@ -180,12 +199,17 @@ function showQuestion() {
         <div class="question-point">Nilai: ${question.nilai || 0} poin</div>
     `;
     
+    // 🔥 PERBAIKAN: Tampilkan gambar dengan modal
     if (question.gambar && question.gambar.trim() !== '') {
         questionHtml += `
             <div class="question-image-container" style="margin: 15px 0; text-align: center;">
                 <img src="${question.gambar}" 
                      alt="Gambar soal" 
-                     style="max-width: 100%; max-height: 200px; border-radius: 8px;">
+                     class="question-image"
+                     style="max-width: 100%; max-height: 250px; border-radius: 8px; cursor: pointer;"
+                     onclick="showImageModal('${question.gambar}')"
+                     onerror="this.style.display='none'">
+                <p style="font-size: 12px; color: #666; margin-top: 5px;">Klik gambar untuk memperbesar</p>
             </div>
         `;
     }
@@ -206,7 +230,7 @@ function showQuestion() {
                 <div class="option ${isSelected ? 'selected' : ''}" 
                      onclick="selectOption('${question.id}', '${optionLetter}')">
                     <div class="option-marker">${optionLetter}</div>
-                    <div class="option-text">${optionLetter}. ${pilihanText}</div>
+                    <div class="option-text">${optionLetter}. ${escapeHtml(pilihanText)}</div>
                 </div>
             `;
         });
@@ -217,7 +241,7 @@ function showQuestion() {
             <div class="short-answer">
                 <input type="text" 
                        placeholder="Tulis jawaban Anda" 
-                       value="${currentAnswers[question.id] || ''}"
+                       value="${escapeHtml(currentAnswers[question.id] || '')}"
                        onchange="saveShortAnswer('${question.id}', this.value)">
             </div>
         `;
@@ -226,7 +250,7 @@ function showQuestion() {
         questionHtml += `
             <div class="essay-answer">
                 <textarea placeholder="Tulis jawaban Anda" rows="5"
-                          onchange="saveEssay('${question.id}', this.value)">${currentAnswers[question.id] || ''}</textarea>
+                          onchange="saveEssay('${question.id}', this.value)">${escapeHtml(currentAnswers[question.id] || '')}</textarea>
             </div>
         `;
     }
@@ -243,7 +267,30 @@ function showQuestion() {
     container.innerHTML = questionHtml;
 }
 
-// dashboard-siswa.js - Fungsi penyimpanan jawaban
+// 🔥 FUNGSI BARU: Escape HTML untuk keamanan
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 🔥 FUNGSI BARU: Modal gambar
+function showImageModal(imageUrl) {
+    const modal = document.getElementById('imageModal');
+    const modalImg = document.getElementById('modalImage');
+    if (modal && modalImg) {
+        modal.style.display = 'flex';
+        modalImg.src = imageUrl;
+    }
+}
+
+function closeImageModal() {
+    const modal = document.getElementById('imageModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
 
 function selectOption(questionId, answer) {
     currentAnswers[questionId] = answer;
@@ -252,13 +299,11 @@ function selectOption(questionId, answer) {
 }
 
 function saveShortAnswer(questionId, value) {
-    // Pastikan value adalah string
     currentAnswers[questionId] = value || '';
     updateQuestionGrid();
 }
 
 function saveEssay(questionId, value) {
-    // Pastikan value adalah string
     currentAnswers[questionId] = value || '';
     updateQuestionGrid();
 }
@@ -390,8 +435,6 @@ async function submitExam() {
         const totalIsian = jmlIsian * nilaiIsianPerSoal;
         const totalUraian = jmlUraian * nilaiUraianPerSoal;
         
-        // HITUNG NILAI SEMENTARA (tanpa uraian)
-        // Rumus: (Jumlah Nilai Diperoleh / Jumlah Nilai Maksimal) x 100
         const jumlahNilaiDiperoleh = nilaiPG + nilaiIsian;
         const jumlahNilaiMaksimal = totalPG + totalIsian + totalUraian;
         
@@ -443,6 +486,7 @@ async function submitExam() {
         alert('Gagal mengumpulkan jawaban: ' + error.message);
     }
 }
+
 function showResults(nilaiPG, nilaiIsian, totalPG, totalIsian) {
     const examPage = document.getElementById('examPage');
     const resultPage = document.getElementById('resultPage');
@@ -459,4 +503,30 @@ function showResults(nilaiPG, nilaiIsian, totalPG, totalIsian) {
     if (resultIsian) resultIsian.textContent = nilaiIsian + ' / ' + totalIsian;
     if (resultUraian) resultUraian.textContent = 'Menunggu koreksi guru';
     if (resultTotal) resultTotal.textContent = (nilaiPG + nilaiIsian) + ' / ' + (totalPG + totalIsian);
+}
+
+// 🔥 PERBAIKAN: Fungsi backToMenu
+function backToMenu() {
+    const resultPage = document.getElementById('resultPage');
+    const mainMenu = document.getElementById('mainMenu');
+    
+    if (resultPage) resultPage.style.display = 'none';
+    if (mainMenu) mainMenu.style.display = 'block';
+    
+    // Reset semua variabel
+    currentExam = null;
+    currentQuestions = [];
+    currentAnswers = {};
+    currentQuestionIndex = 0;
+    if (timerInterval) clearInterval(timerInterval);
+}
+
+// 🔥 PERBAIKAN: Fungsi logout
+function logout() {
+    if (confirm('Apakah Anda yakin ingin logout?')) {
+        // Hapus session storage
+        sessionStorage.removeItem('currentUser');
+        // Redirect ke halaman login
+        window.location.href = 'index.html';
+    }
 }
