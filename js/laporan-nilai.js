@@ -1,5 +1,7 @@
+// ==================== DOWNLOAD LAPORAN EXCEL ====================
+
 // laporan-nilai.js
-// Download laporan per kelas (Excel) - TETAP menggunakan orderBy
+// Download laporan per kelas (Excel)
 
 async function downloadLaporanKelas() {
     const kelas = document.getElementById('laporanKelas').value;
@@ -11,11 +13,10 @@ async function downloadLaporanKelas() {
     }
     
     try {
-        // TETAP gunakan orderBy, index akan menangani
+        // Ambil data jawaban
         const snapshot = await answersRef
             .where('kelas', '==', kelas)
             .where('mataPelajaran', '==', mapel)
-            .orderBy('siswaNama')
             .get();
         
         if (snapshot.empty) {
@@ -23,148 +24,126 @@ async function downloadLaporanKelas() {
             return;
         }
         
-        // Siapkan data untuk Excel
-        const data = [['No', 'Nama', 'Mata Pelajaran', 'Pilihan Ganda', 'Isian', 'Uraian', 'Total Nilai']];
-        let no = 1;
-        
+        // Group by siswa (ambil data terbaru)
+        const nilaiMap = new Map();
         snapshot.forEach(doc => {
             const nilai = doc.data();
-            const totalPG = nilai.nilaiPG || 0;
-            const totalIsian = nilai.nilaiIsian || 0;
-            const totalUraian = nilai.nilaiUraian || 0;
-            const total = totalPG + totalIsian + totalUraian;
-            const totalMaks = (nilai.totalPG || 0) + (nilai.totalIsian || 0) + (nilai.totalUraian || 0);
+            const key = nilai.siswaId;
             
-            data.push([
-                no++,
-                nilai.siswaNama || '-',
-                nilai.mataPelajaran || '-',
-                `${totalPG} / ${nilai.totalPG || 0}`,
-                `${totalIsian} / ${nilai.totalIsian || 0}`,
-                `${totalUraian} / ${nilai.totalUraian || 0}`,
-                `${total} / ${totalMaks}`
-            ]);
+            if (!nilaiMap.has(key) || (nilai.waktu && nilai.waktu.toDate && nilai.waktu.toDate() > nilaiMap.get(key).waktu.toDate())) {
+                nilaiMap.set(key, nilai);
+            }
         });
+        
+        // Siapkan data untuk Excel
+        const excelData = [['No', 'NIS', 'Nama Siswa', 'Kelas', 'Mata Pelajaran', 'Nilai PG', 'Nilai Isian', 'Nilai Uraian', 'Total Nilai', 'Status']];
+        let no = 1;
+        
+        for (const [siswaId, nilai] of nilaiMap) {
+            // Ambil nilai per tipe
+            let nilaiPG = nilai.nilaiPG || 0;
+            let nilaiIsian = nilai.nilaiIsian || 0;
+            let nilaiUraian = nilai.nilaiUraian || 0;
+            
+            // Ambil total maksimal dari data
+            let totalPG = nilai.totalPG || 0;
+            let totalIsian = nilai.totalIsian || 0;
+            let totalUraian = nilai.totalUraian || 0;
+            
+            // Jika total maksimal masih 0, hitung dari jumlah soal
+            if (totalPG === 0 && nilai.jumlahSoal) {
+                const jmlPG = nilai.jumlahSoal.pg || 0;
+                const jmlIsian = nilai.jumlahSoal.isian || 0;
+                const jmlUraian = nilai.jumlahSoal.uraian || 0;
+                
+                // Cari nilai per soal dari data ujian
+                try {
+                    const examDoc = await examsRef.doc(nilai.examId).get();
+                    if (examDoc.exists) {
+                        const examData = examDoc.data();
+                        const nilaiPerSoalPG = examData.nilaiPerSoal?.pg || 5;
+                        const nilaiPerSoalIsian = examData.nilaiPerSoal?.isian || 5;
+                        const nilaiPerSoalUraian = examData.nilaiPerSoal?.uraian || 5;
+                        
+                        totalPG = jmlPG * nilaiPerSoalPG;
+                        totalIsian = jmlIsian * nilaiPerSoalIsian;
+                        totalUraian = jmlUraian * nilaiPerSoalUraian;
+                    } else {
+                        // Default jika tidak ada data exam
+                        totalPG = jmlPG * 5;
+                        totalIsian = jmlIsian * 5;
+                        totalUraian = jmlUraian * 5;
+                    }
+                } catch (e) {
+                    console.warn('Gagal ambil data exam:', e);
+                    totalPG = jmlPG * 5;
+                    totalIsian = jmlIsian * 5;
+                    totalUraian = jmlUraian * 5;
+                }
+            }
+            
+            // Hitung jumlah nilai diperoleh
+            const jumlahDiperoleh = nilaiPG + nilaiIsian + nilaiUraian;
+            
+            // Hitung jumlah nilai maksimal
+            const jumlahMaksimal = totalPG + totalIsian + totalUraian;
+            
+            // HITUNG TOTAL NILAI AKHIR (0-100)
+            let totalNilai = 0;
+            if (jumlahMaksimal > 0) {
+                totalNilai = (jumlahDiperoleh / jumlahMaksimal) * 100;
+                totalNilai = Math.round(totalNilai);
+            }
+            
+            let statusText = '';
+            if (nilai.statusKoreksi === 'pending') {
+                statusText = 'Menunggu Koreksi';
+            } else {
+                statusText = 'Selesai';
+            }
+            
+            excelData.push([
+                no++,
+                nilai.nis || '-',
+                nilai.siswaNama || '-',
+                nilai.kelas || '-',
+                nilai.mataPelajaran || '-',
+                nilaiPG,
+                nilaiIsian,
+                nilaiUraian,
+                totalNilai,  // Tampilkan nilai 0-100
+                statusText
+            ]);
+        }
         
         // Buat Excel file
         const wb = XLSX.utils.book_new();
-        const ws = XLSX.utils.aoa_to_sheet(data);
+        const ws = XLSX.utils.aoa_to_sheet(excelData);
         
         // Atur lebar kolom
         ws['!cols'] = [
             { wch: 5 },   // No
-            { wch: 25 },  // Nama
+            { wch: 12 },  // NIS
+            { wch: 25 },  // Nama Siswa
+            { wch: 10 },  // Kelas
             { wch: 20 },  // Mata Pelajaran
-            { wch: 18 },  // Pilihan Ganda
-            { wch: 18 },  // Isian
-            { wch: 18 },  // Uraian
-            { wch: 18 }   // Total Nilai
+            { wch: 12 },  // Nilai PG
+            { wch: 12 },  // Nilai Isian
+            { wch: 12 },  // Nilai Uraian
+            { wch: 12 },  // Total Nilai
+            { wch: 18 }   // Status
         ];
         
         XLSX.utils.book_append_sheet(wb, ws, 'Laporan Nilai');
         XLSX.writeFile(wb, `Laporan_Nilai_${kelas}_${mapel}_${new Date().toISOString().slice(0,10)}.xlsx`);
         
-        alert(`✅ Laporan berhasil didownload!\nTotal data: ${snapshot.size} siswa`);
+        alert('Laporan berhasil didownload!\nTotal data: ' + (no-1) + ' siswa');
         
     } catch (error) {
         console.error('Error downloading laporan:', error);
-        
-        if (error.code === 'failed-precondition' && error.message.includes('index')) {
-            const linkMatch = error.message.match(/https:\/\/[^\s]+/);
-            const link = linkMatch ? linkMatch[0] : '#';
-            alert(`⚠️ Database perlu diindex.\n\nKlik OK untuk membuka halaman pembuatan index.\nSetelah index dibuat (5-10 menit), refresh dan coba lagi.`);
-            if (link !== '#') window.open(link, '_blank');
-        } else {
-            alert('Gagal mendownload laporan: ' + error.message);
-        }
+        alert('Gagal mendownload laporan: ' + error.message);
     }
 }
-
-// ==================== GENERATE LEMBAR JAWABAN PDF ====================
-
-async function generateLembarJawaban() {
-    const kelas = document.getElementById('generateKelas').value;
-    const mapel = document.getElementById('generateMapel').value;
-    
-    if (!kelas || !mapel) {
-        alert('Pilih kelas dan mata pelajaran!');
-        return;
-    }
-    
-    // Cek jsPDF tersedia
-    const JsPDF = window.jspdf?.jsPDF || window.jsPDF;
-    if (!JsPDF) {
-        alert('⚠️ Library PDF tidak ditemukan. Pastikan koneksi internet dan refresh halaman.');
-        return;
-    }
-    
-    try {
-        // Ambil data siswa
-        const siswaSnapshot = await usersRef
-            .where('kelas', '==', kelas)
-            .where('role', '==', 'siswa')
-            .orderBy('nama')
-            .get();
-        
-        if (siswaSnapshot.empty) {
-            alert('Tidak ada siswa di kelas ini');
-            return;
-        }
-        
-        // Ambil data jawaban untuk mapel ini
-        const jawabanSnapshot = await answersRef
-            .where('kelas', '==', kelas)
-            .where('mataPelajaran', '==', mapel)
-            .get();
-        
-        // Buat map jawaban per siswa
-        const jawabanMap = {};
-        jawabanSnapshot.forEach(doc => {
-            const jawaban = doc.data();
-            jawabanMap[jawaban.siswaId] = jawaban;
-        });
-        
-        let successCount = 0;
-        let noAnswerCount = 0;
-        
-        // Generate PDF untuk setiap siswa
-        for (const siswaDoc of siswaSnapshot.docs) {
-            const siswa = siswaDoc.data();
-            const jawaban = jawabanMap[siswaDoc.id];
-            
-            if (jawaban) {
-                try {
-                    await generatePDFSiswa(siswa, jawaban, mapel);
-                    successCount++;
-                    // Beri jeda kecil agar tidak overload
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                } catch (error) {
-                    console.error(`Error generate PDF untuk ${siswa.nama}:`, error);
-                }
-            } else {
-                noAnswerCount++;
-            }
-        }
-        
-        alert(`✅ Generate PDF selesai!\nBerhasil: ${successCount}\nBelum mengerjakan: ${noAnswerCount}`);
-        
-    } catch (error) {
-        console.error('Error generating PDF:', error);
-        
-        if (error.code === 'failed-precondition' && error.message.includes('index')) {
-            const linkMatch = error.message.match(/https:\/\/[^\s]+/);
-            const link = linkMatch ? linkMatch[0] : '#';
-            alert(`⚠️ Database perlu diindex.\n\nKlik OK untuk membuka halaman pembuatan index.\nSetelah index dibuat (5-10 menit), refresh dan coba lagi.`);
-            if (link !== '#') window.open(link, '_blank');
-        } else {
-            alert('Gagal generate PDF: ' + error.message);
-        }
-    }
-}
-
-// laporan-nilai.js - Fungsi generatePDFSiswa dengan header custom
-
-// laporan-nilai.js - Fungsi generatePDFSiswa yang diperbaiki
 
 async function generatePDFSiswa(siswa, jawaban, mapel) {
     return new Promise(async (resolve, reject) => {
@@ -175,38 +154,27 @@ async function generatePDFSiswa(siswa, jawaban, mapel) {
                 return;
             }
             
-            // Ambil setting header
             const headerSetting = getPdfSetting();
-            
             const doc = new JsPDF();
             let yPos = 15;
             
-            // ========== HEADER DENGAN LOGO DAN IDENTITAS SEKOLAH ==========
-            
-            // Logo Kiri (jika ada)
+            // Header dengan logo
             if (headerSetting.logoKiriUrl) {
                 try {
                     doc.addImage(headerSetting.logoKiriUrl, 'JPEG', 15, yPos, 25, 25);
-                } catch (e) {
-                    console.warn('Gagal memuat logo kiri:', e);
-                }
+                } catch (e) {}
             }
             
-            // Logo Kanan (jika ada)
             if (headerSetting.logoKananUrl) {
                 try {
                     doc.addImage(headerSetting.logoKananUrl, 'JPEG', 170, yPos, 25, 25);
-                } catch (e) {
-                    console.warn('Gagal memuat logo kanan:', e);
-                }
+                } catch (e) {}
             }
             
-            // Identitas Sekolah (Tengah) - Multi baris
             doc.setFontSize(11);
             doc.setFont(undefined, 'bold');
             doc.setTextColor(headerSetting.headerWarna || '#2c3e50');
             
-            // Split nama sekolah menjadi beberapa baris
             const namaSekolahLines = (headerSetting.sekolahNama || '').split('\n');
             let currentY = yPos + 8;
             for (const line of namaSekolahLines) {
@@ -216,7 +184,6 @@ async function generatePDFSiswa(siswa, jawaban, mapel) {
                 }
             }
             
-            // Alamat sekolah (multi baris)
             doc.setFontSize(8);
             doc.setFont(undefined, 'normal');
             const alamatLines = (headerSetting.sekolahAlamat || '').split('\n');
@@ -227,13 +194,11 @@ async function generatePDFSiswa(siswa, jawaban, mapel) {
                 }
             }
             
-            // Kontak
-            doc.text(`Telp: ${headerSetting.sekolahTelp || '-'} | Email: ${headerSetting.sekolahEmail || '-'}`, 105, currentY, { align: 'center' });
+            doc.text('Telp: ' + (headerSetting.sekolahTelp || '-') + ' | Email: ' + (headerSetting.sekolahEmail || '-'), 105, currentY, { align: 'center' });
             currentY += 4;
             doc.text(headerSetting.sekolahKota || '', 105, currentY, { align: 'center' });
             currentY += 5;
             
-            // Motto (multi baris)
             doc.setFontSize(7);
             doc.setFont(undefined, 'italic');
             const mottoLines = (headerSetting.sekolahMotto || '').split('\n');
@@ -244,35 +209,33 @@ async function generatePDFSiswa(siswa, jawaban, mapel) {
                 }
             }
             
-            // Garis pemisah
             doc.setDrawColor(200, 200, 200);
             doc.line(15, currentY + 3, 195, currentY + 3);
             
             yPos = currentY + 12;
             
-            // Judul Lembar Jawaban
             doc.setFontSize(14);
             doc.setFont(undefined, 'bold');
-            doc.setTextColor(0, 0, 0); // Kembalikan ke hitam
+            doc.setTextColor(0, 0, 0);
             doc.text('LEMBAR JAWABAN SISWA', 105, yPos, { align: 'center' });
             yPos += 12;
             
-            // ========== INFO SISWA ==========
+            // Info Siswa
             doc.setFontSize(10);
             doc.setFont(undefined, 'normal');
-            doc.setTextColor(0, 0, 0); // Pastikan hitam
-            doc.text(`Nama          : ${siswa.nama || '-'}`, 20, yPos);
+            doc.setTextColor(0, 0, 0);
+            doc.text('Nama          : ' + (siswa.nama || '-'), 20, yPos);
             yPos += 6;
-            doc.text(`Kelas         : ${siswa.kelas || '-'}`, 20, yPos);
+            doc.text('Kelas         : ' + (siswa.kelas || '-'), 20, yPos);
             yPos += 6;
-            doc.text(`NIS           : ${siswa.nis || '-'}`, 20, yPos);
+            doc.text('NIS           : ' + (siswa.nis || '-'), 20, yPos);
             yPos += 6;
-            doc.text(`Mata Pelajaran: ${mapel}`, 20, yPos);
+            doc.text('Mata Pelajaran: ' + mapel, 20, yPos);
             yPos += 6;
-            doc.text(`Tanggal       : ${new Date().toLocaleDateString('id-ID')}`, 20, yPos);
+            doc.text('Tanggal       : ' + new Date().toLocaleDateString('id-ID'), 20, yPos);
             yPos += 15;
             
-            // ========== RINGKASAN NILAI ==========
+            // Hitung ulang total nilai
             const nilaiPG = jawaban.nilaiPG || 0;
             const nilaiIsian = jawaban.nilaiIsian || 0;
             const nilaiUraian = jawaban.nilaiUraian || 0;
@@ -282,31 +245,35 @@ async function generatePDFSiswa(siswa, jawaban, mapel) {
             const total = nilaiPG + nilaiIsian + nilaiUraian;
             const totalMaks = totalPG + totalIsian + totalUraian;
             
+            let nilaiAkhir = 0;
+            if (totalMaks > 0) {
+                nilaiAkhir = (total / totalMaks) * 100;
+                nilaiAkhir = Math.round(nilaiAkhir);
+            }
+            
+            // Ringkasan Nilai
             doc.setFont(undefined, 'bold');
-            doc.setTextColor(0, 0, 0);
             doc.text('RINGKASAN NILAI:', 20, yPos);
             yPos += 8;
             
             doc.setFont(undefined, 'normal');
-            doc.text(`   Pilihan Ganda : ${nilaiPG} / ${totalPG}`, 20, yPos);
+            doc.text('   Pilihan Ganda : ' + nilaiPG, 20, yPos);
             yPos += 6;
-            doc.text(`   Isian         : ${nilaiIsian} / ${totalIsian}`, 20, yPos);
+            doc.text('   Isian         : ' + nilaiIsian, 20, yPos);
             yPos += 6;
-            doc.text(`   Uraian        : ${nilaiUraian} / ${totalUraian}`, 20, yPos);
+            doc.text('   Uraian        : ' + nilaiUraian, 20, yPos);
             yPos += 8;
             
             doc.setFont(undefined, 'bold');
-            doc.text(`   TOTAL NILAI   : ${total} / ${totalMaks}`, 20, yPos);
+            doc.text('   TOTAL NILAI   : ' + nilaiAkhir, 20, yPos);
             yPos += 20;
             
-            // ========== DETAIL JAWABAN ==========
+            // Detail Jawaban
             doc.setFontSize(11);
             doc.setFont(undefined, 'bold');
-            doc.setTextColor(0, 0, 0);
             doc.text('DETAIL JAWABAN:', 20, yPos);
             yPos += 10;
             
-            // Ambil soal
             const questionsSnapshot = await firebase.firestore()
                 .collection('questions')
                 .where('examId', '==', jawaban.examId)
@@ -331,46 +298,42 @@ async function generatePDFSiswa(siswa, jawaban, mapel) {
                 
                 doc.setFontSize(10);
                 doc.setFont(undefined, 'bold');
-                doc.setTextColor(0, 0, 0); // Hitam untuk judul soal
+                doc.setTextColor(0, 0, 0);
+                
                 let jenisSoal = '';
                 if (question.tipe === 'pg') jenisSoal = 'PILIHAN GANDA';
                 else if (question.tipe === 'isian') jenisSoal = 'ISIAN SINGKAT';
                 else if (question.tipe === 'uraian') jenisSoal = 'URAIAN';
                 
-                doc.text(`${noSoal++}. [${jenisSoal}]`, 20, yPos);
+                doc.text(noSoal++ + '. [' + jenisSoal + ']', 20, yPos);
                 yPos += 6;
                 
                 doc.setFontSize(9);
                 doc.setFont(undefined, 'normal');
-                doc.setTextColor(0, 0, 0); // Hitam untuk soal
                 const soalSplit = doc.splitTextToSize(question.soal || '', 170);
                 doc.text(soalSplit, 25, yPos);
                 yPos += soalSplit.length * 5 + 3;
                 
                 if (question.tipe === 'pg') {
-                    const options = ['A', 'B', 'C', 'D'];
                     const jawabanBenar = question.kunci;
                     const jawabanData = jawabanPG[question.id];
                     const jawabanSiswa = jawabanData?.jawaban || '';
                     const isCorrect = jawabanSiswa && jawabanSiswa.toUpperCase() === String(jawabanBenar).toUpperCase();
                     
-                    // Jawaban siswa - warna hitam
                     doc.setTextColor(0, 0, 0);
-                    doc.text(`   Jawaban : ${jawabanSiswa || '(tidak dijawab)'}`, 25, yPos);
+                    doc.text('   Jawaban : ' + (jawabanSiswa || '(tidak dijawab)'), 25, yPos);
                     yPos += 5;
                     
-                    // Status - hanya baris ini yang berwarna
                     if (isCorrect) {
-                        doc.setTextColor(0, 128, 0); // Hijau untuk BENAR
-                        doc.text(`   Status  : BENAR ✓`, 25, yPos);
+                        doc.setTextColor(0, 128, 0);
+                        doc.text('   Status  : BENAR', 25, yPos);
                     } else {
-                        doc.setTextColor(255, 0, 0); // Merah untuk SALAH
-                        doc.text(`   Status  : SALAH ✗`, 25, yPos);
+                        doc.setTextColor(255, 0, 0);
+                        doc.text('   Status  : SALAH', 25, yPos);
                         yPos += 5;
-                        doc.setTextColor(0, 128, 0); // Hijau untuk kunci jawaban
-                        doc.text(`   Seharusnya : ${jawabanBenar}`, 25, yPos);
+                        doc.setTextColor(0, 128, 0);
+                        doc.text('   Seharusnya : ' + jawabanBenar, 25, yPos);
                     }
-                    // Kembalikan ke hitam setelah selesai
                     doc.setTextColor(0, 0, 0);
                     yPos += 8;
                     
@@ -380,23 +343,20 @@ async function generatePDFSiswa(siswa, jawaban, mapel) {
                     const jawabanSiswa = jawabanData?.jawaban || '';
                     const isCorrect = jawabanSiswa && jawabanSiswa.toLowerCase().trim() === String(jawabanBenar).toLowerCase().trim();
                     
-                    // Jawaban siswa - warna hitam
                     doc.setTextColor(0, 0, 0);
-                    doc.text(`   Jawaban : ${jawabanSiswa || '(tidak dijawab)'}`, 25, yPos);
+                    doc.text('   Jawaban : ' + (jawabanSiswa || '(tidak dijawab)'), 25, yPos);
                     yPos += 5;
                     
-                    // Status - hanya baris ini yang berwarna
                     if (isCorrect) {
-                        doc.setTextColor(0, 128, 0); // Hijau untuk BENAR
-                        doc.text(`   Status  : BENAR ✓`, 25, yPos);
+                        doc.setTextColor(0, 128, 0);
+                        doc.text('   Status  : BENAR', 25, yPos);
                     } else {
-                        doc.setTextColor(255, 0, 0); // Merah untuk SALAH
-                        doc.text(`   Status  : SALAH ✗`, 25, yPos);
+                        doc.setTextColor(255, 0, 0);
+                        doc.text('   Status  : SALAH', 25, yPos);
                         yPos += 5;
-                        doc.setTextColor(0, 128, 0); // Hijau untuk kunci jawaban
-                        doc.text(`   Seharusnya : ${jawabanBenar}`, 25, yPos);
+                        doc.setTextColor(0, 128, 0);
+                        doc.text('   Seharusnya : ' + jawabanBenar, 25, yPos);
                     }
-                    // Kembalikan ke hitam
                     doc.setTextColor(0, 0, 0);
                     yPos += 8;
                     
@@ -411,53 +371,48 @@ async function generatePDFSiswa(siswa, jawaban, mapel) {
                     }
                     
                     doc.setTextColor(0, 0, 0);
-                    doc.text(`   Jawaban :`, 25, yPos);
+                    doc.text('   Jawaban :', 25, yPos);
                     yPos += 5;
                     
                     const jawabanSplit = doc.splitTextToSize(jawabanSiswa || '(tidak dijawab)', 165);
                     doc.text(jawabanSplit, 30, yPos);
                     yPos += jawabanSplit.length * 5 + 3;
                     
-                    // Nilai - warna berdasarkan nilai
                     if (nilai === nilaiMaksimal) {
-                        doc.setTextColor(0, 128, 0); // Hijau jika nilai maksimal
+                        doc.setTextColor(0, 128, 0);
                     } else if (nilai > 0) {
-                        doc.setTextColor(255, 165, 0); // Oranye jika sebagian
+                        doc.setTextColor(255, 165, 0);
                     } else {
-                        doc.setTextColor(255, 0, 0); // Merah jika 0
+                        doc.setTextColor(255, 0, 0);
                     }
-                    doc.text(`   Nilai : ${nilai} / ${nilaiMaksimal}`, 25, yPos);
-                    doc.setTextColor(0, 0, 0); // Kembalikan ke hitam
+                    doc.text('   Nilai : ' + nilai, 25, yPos);  // Hanya tampilkan nilai perolehan
+                    doc.setTextColor(0, 0, 0);
                     yPos += 8;
                     
                     if (nilai < nilaiMaksimal && jawaban.koreksiDetail && jawaban.koreksiDetail[question.id]?.catatan) {
                         doc.setTextColor(100, 100, 100);
-                        doc.text(`   Catatan : ${jawaban.koreksiDetail[question.id].catatan}`, 25, yPos);
+                        doc.text('   Catatan : ' + jawaban.koreksiDetail[question.id].catatan, 25, yPos);
                         doc.setTextColor(0, 0, 0);
                         yPos += 6;
                     }
                     
                     if (question.kunci && question.kunci.trim() !== '') {
                         doc.setTextColor(0, 128, 0);
-                        doc.text(`   Kunci Jawaban : ${question.kunci}`, 25, yPos);
+                        doc.text('   Kunci Jawaban : ' + question.kunci, 25, yPos);
                         doc.setTextColor(0, 0, 0);
                         yPos += 6;
                     }
                     yPos += 5;
                 }
-                
                 yPos += 5;
             }
             
-            // Footer
             doc.setFontSize(8);
             doc.setTextColor(100, 100, 100);
             doc.setFont(undefined, 'italic');
-            doc.text(`Dicetak pada: ${new Date().toLocaleString('id-ID')}`, 105, 285, { align: 'center' });
+            doc.text('Dicetak pada: ' + new Date().toLocaleString('id-ID'), 105, 285, { align: 'center' });
             
-            const fileName = `Lembar_Jawaban_${siswa.nama || 'siswa'}_${mapel}.pdf`;
-            doc.save(fileName);
-            
+            doc.save('Lembar_Jawaban_' + (siswa.nama || 'siswa') + '_' + mapel + '.pdf');
             resolve();
             
         } catch (error) {
