@@ -305,8 +305,6 @@ function updateQuestionGrid() {
     grid.innerHTML = gridHtml;
 }
 
-// dashboard-siswa.js - SUBMIT EXAM YANG BENAR
-
 async function submitExam() {
     if (!confirm('Apakah Anda yakin ingin mengumpulkan jawaban?')) {
         return;
@@ -315,7 +313,6 @@ async function submitExam() {
     if (timerInterval) clearInterval(timerInterval);
     
     try {
-        // Ambil data ujian
         const examDoc = await examsRef.doc(currentExam.id).get();
         const examData = examDoc.data();
         
@@ -323,12 +320,10 @@ async function submitExam() {
             throw new Error('Data ujian tidak ditemukan');
         }
         
-        // Ambil nilai per soal dari setting ujian
         const nilaiPGPerSoal = examData.nilaiPerSoal?.pg || 5;
         const nilaiIsianPerSoal = examData.nilaiPerSoal?.isian || 5;
         const nilaiUraianPerSoal = examData.nilaiPerSoal?.uraian || 5;
         
-        // STRUKTUR JAWABAN TERPISAH
         const jawabanPG = {};
         const jawabanIsian = {};
         const jawabanUraian = {};
@@ -346,7 +341,6 @@ async function submitExam() {
             
             if (tipe === 'pg') {
                 jmlPG++;
-                // Simpan jawaban PG (huruf A/B/C/D)
                 jawabanPG[question.id] = {
                     jawaban: jawabanSiswa || '',
                     kunci: kunci || '',
@@ -355,7 +349,6 @@ async function submitExam() {
                     pilihan: question.pilihan || []
                 };
                 
-                // Hitung nilai - bandingkan huruf (A, B, C, D)
                 if (jawabanSiswa && kunci) {
                     const jawabanHuruf = String(jawabanSiswa).trim().toUpperCase();
                     const kunciHuruf = String(kunci).trim().toUpperCase();
@@ -387,24 +380,27 @@ async function submitExam() {
                     jawaban: jawabanSiswa || '',
                     soal: question.soal,
                     nilaiMaksimal: nilaiUraianPerSoal,
+                    nilaiDiperoleh: 0,
                     nomor: question.nomor
                 };
             }
         }
         
-        // Hitung total maksimal
         const totalPG = jmlPG * nilaiPGPerSoal;
         const totalIsian = jmlIsian * nilaiIsianPerSoal;
         const totalUraian = jmlUraian * nilaiUraianPerSoal;
         
-        console.log('📊 Hasil perhitungan:', {
-            jmlPG, jmlIsian, jmlUraian,
-            nilaiPG, totalPG,
-            nilaiIsian, totalIsian,
-            totalUraian
-        });
+        // HITUNG NILAI SEMENTARA (tanpa uraian)
+        // Rumus: (Jumlah Nilai Diperoleh / Jumlah Nilai Maksimal) x 100
+        const jumlahNilaiDiperoleh = nilaiPG + nilaiIsian;
+        const jumlahNilaiMaksimal = totalPG + totalIsian + totalUraian;
         
-        // SIMPAN KE FIRESTORE
+        let nilaiSementara = 0;
+        if (jumlahNilaiMaksimal > 0) {
+            nilaiSementara = (jumlahNilaiDiperoleh / jumlahNilaiMaksimal) * 100;
+            nilaiSementara = Math.round(nilaiSementara);
+        }
+        
         await answersRef.add({
             examId: currentExam.id,
             siswaId: currentUser.id,
@@ -413,12 +409,10 @@ async function submitExam() {
             kelas: currentUser.kelas,
             mataPelajaran: currentExam.mataPelajaran,
             
-            // JAWABAN TERPISAH
             jawabanPG: jawabanPG,
             jawabanIsian: jawabanIsian,
             jawabanUraian: jawabanUraian,
             
-            // Nilai
             nilaiPG: nilaiPG,
             nilaiIsian: nilaiIsian,
             nilaiUraian: 0,
@@ -426,26 +420,27 @@ async function submitExam() {
             totalIsian: totalIsian,
             totalUraian: totalUraian,
             
-            // Jumlah soal
             jumlahSoal: {
                 pg: jmlPG,
                 isian: jmlIsian,
                 uraian: jmlUraian
             },
             
-            // Status
+            nilaiSementara: nilaiSementara,
             statusKoreksi: jmlUraian > 0 ? 'pending' : 'selesai',
-            
-            // Waktu
             waktu: firebase.firestore.FieldValue.serverTimestamp()
         });
         
-        alert('✅ Jawaban berhasil dikumpulkan!');
+        if (jmlUraian > 0) {
+            alert('Jawaban berhasil dikumpulkan!\nNilai Sementara: ' + nilaiSementara + '\n(Soal uraian menunggu koreksi)');
+        } else {
+            alert('Jawaban berhasil dikumpulkan!\nNilai Akhir: ' + nilaiSementara);
+        }
         showResults(nilaiPG, nilaiIsian, totalPG, totalIsian);
         
     } catch (error) {
-        console.error('❌ Error submitting exam:', error);
-        alert('❌ Gagal mengumpulkan jawaban: ' + error.message);
+        console.error('Error submitting exam:', error);
+        alert('Gagal mengumpulkan jawaban: ' + error.message);
     }
 }
 function showResults(nilaiPG, nilaiIsian, totalPG, totalIsian) {
@@ -460,22 +455,8 @@ function showResults(nilaiPG, nilaiIsian, totalPG, totalIsian) {
     const resultUraian = document.getElementById('resultUraian');
     const resultTotal = document.getElementById('resultTotal');
     
-    if (resultPG) resultPG.textContent = `${nilaiPG} / ${totalPG}`;
-    if (resultIsian) resultIsian.textContent = `${nilaiIsian} / ${totalIsian}`;
+    if (resultPG) resultPG.textContent = nilaiPG + ' / ' + totalPG;
+    if (resultIsian) resultIsian.textContent = nilaiIsian + ' / ' + totalIsian;
     if (resultUraian) resultUraian.textContent = 'Menunggu koreksi guru';
-    if (resultTotal) resultTotal.textContent = `${nilaiPG + nilaiIsian} / ${totalPG + totalIsian}`;
-}
-
-function backToMenu() {
-    document.getElementById('resultPage').style.display = 'none';
-    document.getElementById('mainMenu').style.display = 'block';
-    loadSubjects();
-}
-
-function logout() {
-    if (confirm('Apakah Anda yakin ingin logout?')) {
-        if (timerInterval) clearInterval(timerInterval);
-        sessionStorage.removeItem('currentUser');
-        window.location.href = 'index.html';
-    }
+    if (resultTotal) resultTotal.textContent = (nilaiPG + nilaiIsian) + ' / ' + (totalPG + totalIsian);
 }
