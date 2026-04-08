@@ -329,6 +329,7 @@ function resetPdfSetting() {
 }
 
 // ============ GENERATE PDF ============
+// ============ GENERATE PDF ============
 async function generateLembarJawaban() {
     const kelas = getElement('generateKelas')?.value;
     const mapel = getElement('generateMapel')?.value;
@@ -358,18 +359,45 @@ async function generateLembarJawaban() {
             return;
         }
         
-        let soalMap = new Map();
-        if (typeof soalRef !== 'undefined') {
-            const soalSnapshot = await soalRef
-                .where('kelas', '==', kelas)
-                .where('mataPelajaran', '==', mapel)
-                .get();
-            
-            soalSnapshot.forEach(doc => {
-                const soal = doc.data();
-                soalMap.set(soal.nomor, soal);
-            });
+                        let soalMap = new Map(); // key: "examId_nomor"
+        
+        // Ambil semua jawaban untuk mendapatkan examId unik
+        const semuaJawabanSnapshot = await answersRef
+            .where('kelas', '==', kelas)
+            .where('mataPelajaran', '==', mapel)
+            .get();
+        
+        // Kumpulkan examId unik
+        const examIds = new Set();
+        semuaJawabanSnapshot.forEach(doc => {
+            const data = doc.data();
+            if (data.examId) {
+                examIds.add(data.examId);
+            }
+        });
+        
+        // Ambil soal berdasarkan setiap examId
+        if (examIds.size > 0 && typeof soalRef !== 'undefined') {
+            for (const examId of examIds) {
+                const soalSnapshot = await soalRef
+                    .where('examId', '==', examId)
+                    .get();
+                
+                soalSnapshot.forEach(doc => {
+                    const soal = doc.data();
+                    const key = `${examId}_${soal.nomor}`;
+                    soalMap.set(key, {
+                        nomor: soal.nomor,
+                        soal: soal.soal || '',
+                        kunci: soal.kunci || '',
+                        jenis: soal.jenis || 'pg'
+                    });
+                });
+            }
         }
+        
+        console.log('ExamId ditemukan:', [...examIds]);
+        console.log('Jumlah soal di Map:', soalMap.size);
         
         const siswaList = [];
         siswaSnapshot.forEach(doc => {
@@ -378,6 +406,8 @@ async function generateLembarJawaban() {
         
         showToast(`📄 Membuat ${siswaList.length} lembar jawaban...`, 'info');
         
+        // Gunakan loop biasa, biarkan browser handle multiple download
+        // Browser akan meminta izin untuk multiple download
         for (let i = 0; i < siswaList.length; i++) {
             const siswa = siswaList[i];
             
@@ -397,6 +427,9 @@ async function generateLembarJawaban() {
             
             await generateSinglePDF(siswa, kelas, mapel, setting, jawabanData, soalMap);
             
+            // Delay antar download agar browser tidak kewalahan
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
             if ((i + 1) % 5 === 0 || i === siswaList.length - 1) {
                 showToast(`Progress: ${i + 1}/${siswaList.length}`, 'info');
             }
@@ -408,13 +441,12 @@ async function generateLembarJawaban() {
         showToast('❌ Gagal generate PDF: ' + error.message, 'error');
     }
 }
-
 async function generateSinglePDF(siswa, kelas, mapel, setting, jawabanData, soalMap) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF('p', 'mm', 'a4');
     
-    // HEADER
-    const headerHeight = 45;
+    // HEADER - 35mm (3.5 cm)
+    const headerHeight = 35;
     const headerWarna = setting.headerWarna || '#2c3e50';
     
     doc.setFillColor(parseInt(headerWarna.slice(1,3), 16),
@@ -422,169 +454,249 @@ async function generateSinglePDF(siswa, kelas, mapel, setting, jawabanData, soal
                      parseInt(headerWarna.slice(5,7), 16));
     doc.rect(0, 0, 210, headerHeight, 'F');
     
-    const logoWidth = (parseInt(setting.logoWidth) || 40) / 1.5;
-    const logoHeight = (parseInt(setting.logoHeight) || 40) / 1.5;
+    const logoWidth = (parseInt(setting.logoWidth) || 25) / 1.5;
+    const logoHeight = (parseInt(setting.logoHeight) || 25) / 1.5;
     const logoY = (headerHeight - logoHeight) / 2;
     
     if (setting.logoKiriData && setting.logoKiriData.startsWith('data:image')) {
         try {
-            doc.addImage(setting.logoKiriData, 'JPEG', 10, logoY, logoWidth, logoHeight);
+            doc.addImage(setting.logoKiriData, 'JPEG', 8, logoY, logoWidth, logoHeight);
         } catch (e) {}
     }
     
     if (setting.logoKananData && setting.logoKananData.startsWith('data:image')) {
         try {
-            doc.addImage(setting.logoKananData, 'JPEG', 210 - 10 - logoWidth, logoY, logoWidth, logoHeight);
+            doc.addImage(setting.logoKananData, 'JPEG', 210 - 8 - logoWidth, logoY, logoWidth, logoHeight);
         } catch (e) {}
     }
     
     doc.setTextColor(255, 255, 255);
-    doc.setFontSize(14);
+    doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
     
     const sekolahNama = setting.sekolahNama?.split('\n') || ['SEKOLAH'];
-    let textY = 12;
+    let textY = 8;
     sekolahNama.forEach(line => {
         doc.text(line, 105, textY, { align: 'center' });
-        textY += 6;
+        textY += 4.5;
     });
     
-    doc.setFontSize(10);
+    doc.setFontSize(7);
     doc.setFont('helvetica', 'normal');
     
     const sekolahAlamat = setting.sekolahAlamat?.split('\n') || [];
     sekolahAlamat.forEach(line => {
         doc.text(line, 105, textY, { align: 'center' });
-        textY += 5;
+        textY += 3.5;
     });
     
-    if (setting.sekolahKota) doc.text(setting.sekolahKota, 105, textY, { align: 'center' });
+    if (setting.sekolahKota) {
+        doc.text(setting.sekolahKota, 105, textY, { align: 'center' });
+        textY += 3;
+    }
     
-    doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(0.5);
-    doc.line(10, headerHeight, 200, headerHeight);
+    if (setting.sekolahTelp || setting.sekolahEmail) {
+        doc.text(`Telp: ${setting.sekolahTelp || '-'} | Email: ${setting.sekolahEmail || '-'}`, 105, textY, { align: 'center' });
+        textY += 3.5;
+    }
+    
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'italic');
+    const mottoLines = (setting.sekolahMotto || '').split('\n');
+    for (const line of mottoLines) {
+        if (line.trim()) {
+            doc.text(line.trim(), 105, textY, { align: 'center' });
+            textY += 3;
+        }
+    }
+    
+    doc.setDrawColor(200, 200, 200);
+    doc.line(10, headerHeight - 1, 200, headerHeight - 1);
     
     // INFORMASI SISWA
-    const infoStartY = headerHeight + 10;
+    const infoStartY = headerHeight + 6;
     doc.setTextColor(0, 0, 0);
-    doc.setFontSize(12);
+    doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
-    doc.text('LEMBAR JAWABAN', 105, infoStartY, { align: 'center' });
+    doc.text('LEMBAR JAWABAN SISWA', 105, infoStartY, { align: 'center' });
     
-    doc.setFontSize(10);
+    doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
     
-    let currentY = infoStartY + 10;
+    let currentY = infoStartY + 7;
     doc.text(`Nama: ${siswa.nama || '-'}`, 20, currentY);
-    doc.text(`NIS: ${siswa.nis || '-'}`, 20, currentY + 7);
-    doc.text(`Kelas: ${kelas}`, 20, currentY + 14);
-    doc.text(`Mata Pelajaran: ${mapel}`, 20, currentY + 21);
-    doc.text(`Tanggal: ${new Date().toLocaleDateString('id-ID')}`, 20, currentY + 28);
+    doc.text(`NIS: ${siswa.nis || '-'}`, 20, currentY + 5);
+    doc.text(`Kelas: ${kelas}`, 20, currentY + 10);
+    doc.text(`Mata Pelajaran: ${mapel}`, 20, currentY + 15);
+    doc.text(`Tanggal: ${new Date().toLocaleDateString('id-ID')}`, 20, currentY + 20);
     
     // RINGKASAN NILAI
     if (jawabanData) {
+        const nilaiPG = jawabanData.nilaiPG || 0;
+        const nilaiIsian = jawabanData.nilaiIsian || 0;
+        const nilaiUraian = jawabanData.nilaiUraian || 0;
+        const totalPG = jawabanData.totalPG || 0;
+        const totalIsian = jawabanData.totalIsian || 0;
+        const totalUraian = jawabanData.totalUraian || 0;
+        
+        const jumlahDiperoleh = nilaiPG + nilaiIsian + nilaiUraian;
+        const jumlahMaksimal = totalPG + totalIsian + totalUraian;
+        
+        let nilaiAkhir = 0;
+        if (jumlahMaksimal > 0) {
+            nilaiAkhir = (jumlahDiperoleh / jumlahMaksimal) * 100;
+            nilaiAkhir = Math.round(nilaiAkhir);
+        }
+        
         doc.setFont('helvetica', 'bold');
         doc.text('RINGKASAN NILAI:', 140, currentY);
         doc.setFont('helvetica', 'normal');
-        doc.text(`PG: ${jawabanData.nilaiPG || 0} / ${jawabanData.totalPG || 0}`, 140, currentY + 7);
-        doc.text(`Isian: ${jawabanData.nilaiIsian || 0} / ${jawabanData.totalIsian || 0}`, 140, currentY + 14);
-        doc.text(`Uraian: ${jawabanData.nilaiUraian || 0} / ${jawabanData.totalUraian || 0}`, 140, currentY + 21);
+        doc.text(`PG: ${nilaiPG}`, 140, currentY + 5);
+        doc.text(`Isian: ${nilaiIsian}`, 140, currentY + 10);
+        doc.text(`Uraian: ${nilaiUraian}`, 140, currentY + 15);
         doc.setFont('helvetica', 'bold');
-        doc.text(`Total: ${jawabanData.nilaiTotal || 0} / ${jawabanData.totalMaksimal || 0}`, 140, currentY + 28);
+        doc.text(`Total: ${nilaiAkhir}`, 140, currentY + 20);
         doc.setFont('helvetica', 'normal');
     }
     
     // KUMPULKAN JAWABAN
+    // KUMPULKAN JAWABAN
     let allJawaban = [];
     
     if (jawabanData) {
+        const examId = jawabanData.examId;
         const jumlahSoalPG = jawabanData.jumlahSoal?.pg || 0;
         const jumlahSoalIsian = jawabanData.jumlahSoal?.isian || 0;
-        const nilaiPerSoalPG = jumlahSoalPG > 0 ? (jawabanData.totalPG || 0) / jumlahSoalPG : 1;
-        const nilaiPerSoalIsian = jumlahSoalIsian > 0 ? (jawabanData.totalIsian || 0) / jumlahSoalIsian : 2;
+        const nilaiMaksPG = jumlahSoalPG > 0 ? (jawabanData.totalPG || 0) / jumlahSoalPG : 1;
+        const nilaiMaksIsian = jumlahSoalIsian > 0 ? (jawabanData.totalIsian || 0) / jumlahSoalIsian : 2;
         
-        // Jawaban PG
+        // 1. JAWABAN PG - ambil dari jawabanPG
         if (jawabanData.jawabanPG) {
             Object.values(jawabanData.jawabanPG).forEach(item => {
-                allJawaban.push({
-                    nomor: parseInt(item.nomor),
-                    jenis: 'PG',
-                    soal: item.soal || '',
-                    jawaban: item.jawaban || '-',
-                    kunci: item.kunci || '-',
-                    benar: item.jawaban === item.kunci,
-                    nilai: item.jawaban === item.kunci ? nilaiPerSoalPG : 0
-                });
-            });
-        }
-        
-        // Jawaban Isian
-        if (jawabanData.jawabanIsian) {
-            Object.values(jawabanData.jawabanIsian).forEach(item => {
-                const isBenar = item.jawaban && item.kunci && 
-                                item.jawaban.toString().toLowerCase() === item.kunci.toString().toLowerCase();
-                allJawaban.push({
-                    nomor: parseInt(item.nomor),
-                    jenis: 'Isian',
-                    soal: item.soal || '',
-                    jawaban: item.jawaban || '-',
-                    kunci: item.kunci || '-',
-                    benar: isBenar,
-                    nilai: isBenar ? nilaiPerSoalIsian : 0
-                });
-            });
-        }
-        
-        // Jawaban Uraian
-        if (jawabanData.koreksiDetail) {
-            Object.values(jawabanData.koreksiDetail).forEach(item => {
-                let nomor = parseInt(item.nomor);
-                if (isNaN(nomor)) nomor = 4;
+                const nomor = parseInt(item.nomor);
+                const key = `${examId}_${nomor}`;
                 
-                let kunciJawaban = '-';
-                if (soalMap && soalMap.has(nomor)) {
-                    kunciJawaban = soalMap.get(nomor).kunci || '-';
+                // Ambil soal dari soalMap
+                let soalText = item.soal || '';
+                let kunciJawaban = item.kunci || '-';
+                
+                if (soalMap.has(key)) {
+                    const soal = soalMap.get(key);
+                    soalText = soal.soal;
+                    kunciJawaban = soal.kunci;
                 }
+                
+                const jawabanSiswa = item.jawaban || '-';
+                const isBenar = jawabanSiswa === kunciJawaban;
                 
                 allJawaban.push({
                     nomor: nomor,
-                    jenis: 'Uraian',
-                    soal: item.soal || '',
-                    jawaban: item.jawaban || '-',
+                    jenis: 'PG',
+                    soal: soalText,
+                    jawaban: jawabanSiswa,
                     kunci: kunciJawaban,
-                    benar: (item.nilai || 0) > 0,
-                    nilai: item.nilai || 0,
-                    nilaiMaksimal: item.nilaiMaksimal || 5
+                    benar: isBenar,
+                    nilai: isBenar ? nilaiMaksPG : 0,
+                    nilaiMaks: nilaiMaksPG
                 });
             });
         }
         
+        // 2. JAWABAN ISIAN & URAIAN - ambil dari koreksiDetail
+        if (jawabanData.koreksiDetail) {
+            // Proses isian
+            if (jawabanData.koreksiDetail.isian) {
+                Object.values(jawabanData.koreksiDetail.isian).forEach(item => {
+                    const nomor = parseInt(item.nomor);
+                    const key = `${examId}_${nomor}`;
+                    
+                    // Ambil soal dari soalMap
+                    let soalText = item.soal || '';
+                    let kunciJawaban = item.kunciJawaban || '-';
+                    
+                    if (soalMap.has(key)) {
+                        const soal = soalMap.get(key);
+                        soalText = soal.soal;
+                        kunciJawaban = soal.kunci;
+                    }
+                    
+                    allJawaban.push({
+                        nomor: nomor,
+                        jenis: 'Isian',
+                        soal: soalText,
+                        jawaban: item.jawaban || '-',
+                        kunci: kunciJawaban,
+                        benar: (item.nilai || 0) > 0,
+                        nilai: item.nilai || 0,
+                        nilaiMaks: nilaiMaksIsian
+                    });
+                });
+            }
+            
+            // Proses uraian
+            if (jawabanData.koreksiDetail.uraian) {
+                Object.values(jawabanData.koreksiDetail.uraian).forEach(item => {
+                    const nomor = parseInt(item.nomor);
+                    const key = `${examId}_${nomor}`;
+                    
+                    // Ambil soal dari soalMap
+                    let soalText = item.soal || '';
+                    let kunciJawaban = item.kunciJawaban || '-';
+                    let nilaiMaksimal = item.nilaiMaksimal || 10;
+                    
+                    if (soalMap.has(key)) {
+                        const soal = soalMap.get(key);
+                        soalText = soal.soal;
+                        kunciJawaban = soal.kunci;
+                        nilaiMaksimal = 10; // atau sesuai soal
+                    }
+                    
+                    allJawaban.push({
+                        nomor: nomor,
+                        jenis: 'Uraian',
+                        soal: soalText,
+                        jawaban: item.jawaban || '-',
+                        kunci: kunciJawaban,
+                        benar: (item.nilai || 0) > 0,
+                        nilai: item.nilai || 0,
+                        nilaiMaks: nilaiMaksimal
+                    });
+                });
+            }
+        }
+        
+        // Urutkan berdasarkan nomor
         allJawaban.sort((a, b) => a.nomor - b.nomor);
     }
     
-    // TABEL JAWABAN - Dengan lebar yang disesuaikan
-    const tableStartY = currentY + 38;
+    console.log('Total jawaban:', allJawaban.length);
+    console.log('Detail:', allJawaban.map(j => ({nomor: j.nomor, jenis: j.jenis, nilai: j.nilai, kunci: j.kunci})));
+    
+    // TABEL JAWABAN - PERBAIKAN UNTUK SOAL WRAP TEXT
+       // TABEL JAWABAN - PERBAIKAN UNTUK SOAL WRAP TEXT
+    const tableStartY = currentY + 30;
     const tableData = [];
     
+    let urutanNomor = 1;  // <--- NOMOR URUT OTOMATIS
+    
     for (const item of allJawaban) {
-        // Gunakan teks biasa untuk B/S
         let statusText = '';
         if (item.benar === true) {
-            statusText = 'Benar';
+            statusText = 'B';
         } else if (item.benar === false) {
-            statusText = 'Salah';
+            statusText = 'S';
         } else {
             statusText = '-';
         }
         
         tableData.push([
-            item.nomor,
+            urutanNomor++,  // <--- PAKAI NOMOR URUT, BUKAN item.nomor
             item.jenis,
-            item.soal.length > 40 ? item.soal.substring(0, 37) + '...' : item.soal,
-            item.jawaban.length > 20 ? item.jawaban.substring(0, 17) + '...' : item.jawaban,
-            item.kunci,
+            item.soal || '',
+            item.jawaban || '-',
+            item.kunci || '-',
             statusText,
-            item.jenis === 'Uraian' ? `${item.nilai}/${item.nilaiMaksimal}` : item.nilai.toString()
+            item.nilai
         ]);
     }
     
@@ -592,67 +704,62 @@ async function generateSinglePDF(siswa, kelas, mapel, setting, jawabanData, soal
         tableData.push(['-', '-', 'Belum ada data jawaban', '-', '-', '-', '-']);
     }
     
+    // Konfigurasi autoTable yang benar untuk wrap text
     doc.autoTable({
         startY: tableStartY,
         head: [['No', 'Jenis', 'Soal', 'Jawaban', 'Kunci', 'B/S', 'Nilai']],
         body: tableData,
         theme: 'grid',
         headStyles: { 
-            fillColor: [52, 73, 94], 
+            fillColor: [52, 73, 94],
             textColor: [255, 255, 255], 
             fontStyle: 'bold', 
             halign: 'center', 
-            fontSize: 7 
+            fontSize: 8,
+            valign: 'middle'
         },
-        columnStyles: {
-            0: { cellWidth: 8, halign: 'center' },
-            1: { cellWidth: 10, halign: 'center' },
-            2: { cellWidth: 60, halign: 'left' },
-            3: { cellWidth: 30, halign: 'left' },
-            4: { cellWidth: 18, halign: 'center' },
-            5: { cellWidth: 15, halign: 'center' },
-            6: { cellWidth: 12, halign: 'center' }
+        // Kunci: Gunakan lebar tetap untuk semua kolom agar wrap bekerja
+               columnStyles: {
+            0: { cellWidth: 'auto', halign: 'center', valign: 'middle' },    // No - 6mm
+            1: { cellWidth: 'auto', halign: 'center', valign: 'middle' },   // Jenis - 10mm
+            2: { cellWidth: 'auto', halign: 'left', valign: 'middle' }, // Soal - auto
+            3: { cellWidth: 'auto', halign: 'left', valign: 'middle' },     // Jawaban - 22mm
+            4: { cellWidth: 'auto', halign: 'center', valign: 'middle' },   // Kunci - 15mm
+            5: { cellWidth: 'auto', halign: 'center', valign: 'middle' },    // B/S - 7mm
+            6: { cellWidth: 'auto', halign: 'center', valign: 'middle' }    // Nilai - 10mm
         },
         styles: { 
-            fontSize: 6, 
-            cellPadding: 1.5, 
-            lineColor: [200, 200, 200], 
-            overflow: 'linebreak', 
-            valign: 'middle' 
+            fontSize: 7, 
+            cellPadding: 2.5, 
+            lineColor: [180, 180, 180], 
+            overflow: 'linebreak',  // Memaksa wrap text
+            valign: 'middle'
         },
         alternateRowStyles: { fillColor: [245, 245, 245] },
-        didDrawCell: (data) => {
-            // Warna untuk kolom B/S (index 5)
-            if (data.column.index === 5 && data.cell.raw && data.cell.raw !== '-') {
-                const isBenar = data.cell.raw === 'Benar';
-                const textColor = isBenar ? [40, 167, 69] : [220, 53, 69];
-                
-                const cellX = data.cell.x, cellY = data.cell.y;
-                const cellWidth = data.cell.width, cellHeight = data.cell.height;
-                const bgColor = data.row.index % 2 === 0 ? [255, 255, 255] : [245, 245, 245];
-                
-                doc.setFillColor(bgColor[0], bgColor[1], bgColor[2]);
-                doc.rect(cellX, cellY, cellWidth, cellHeight, 'F');
-                doc.setDrawColor(200, 200, 200);
-                doc.rect(cellX, cellY, cellWidth, cellHeight, 'S');
-                doc.setTextColor(textColor[0], textColor[1], textColor[2]);
-                doc.setFontSize(6);
-                doc.text(data.cell.raw, cellX + data.cell.padding('left'), cellY + data.cell.padding('top') + 1.5);
-                doc.setTextColor(0, 0, 0);
-                return true;
-            }
-            return false;
-        },
-        margin: { left: 10, right: 10 }
+        margin: { left: 10, right: 10 },
+        // Tambahan untuk memastikan wrap bekerja
+        rowHeight: 'auto',
+        tableWidth: 'auto'
     });
     
-    // KESIMPULAN
-    const finalY = doc.lastAutoTable.finalY + 10;
+    // KESIMPULAN NILAI
+    const finalY = doc.lastAutoTable.finalY + 8;
     
     if (jawabanData) {
-        const totalNilai = jawabanData.nilaiTotal || 0;
-        const totalMaksimal = jawabanData.totalMaksimal || 0;
-        const persentase = totalMaksimal > 0 ? Math.round((totalNilai / totalMaksimal) * 100) : 0;
+        const nilaiPG = jawabanData.nilaiPG || 0;
+        const nilaiIsian = jawabanData.nilaiIsian || 0;
+        const nilaiUraian = jawabanData.nilaiUraian || 0;
+        const totalPG = jawabanData.totalPG || 0;
+        const totalIsian = jawabanData.totalIsian || 0;
+        const totalUraian = jawabanData.totalUraian || 0;
+        
+        const jumlahDiperoleh = nilaiPG + nilaiIsian + nilaiUraian;
+        const jumlahMaksimal = totalPG + totalIsian + totalUraian;
+        
+        let persentase = 0;
+        if (jumlahMaksimal > 0) {
+            persentase = Math.round((jumlahDiperoleh / jumlahMaksimal) * 100);
+        }
         
         let predikat = '', predikatWarna = '';
         if (persentase >= 90) { predikat = 'A (Sangat Baik)'; predikatWarna = '#28a745'; }
@@ -663,39 +770,39 @@ async function generateSinglePDF(siswa, kelas, mapel, setting, jawabanData, soal
         
         doc.setDrawColor(100, 100, 100);
         doc.setLineWidth(0.3);
-        doc.line(15, finalY - 5, 195, finalY - 5);
+        doc.line(15, finalY - 3, 195, finalY - 3);
         
-        doc.setFontSize(10);
+        doc.setFontSize(9);
         doc.setFont('helvetica', 'bold');
         doc.text('KESIMPULAN NILAI:', 15, finalY);
         
-        doc.setFontSize(9);
+        doc.setFontSize(8);
         doc.setFont('helvetica', 'normal');
-        doc.text(`Total Nilai: ${totalNilai} / ${totalMaksimal}`, 15, finalY + 6);
-        doc.text(`Persentase: ${persentase}%`, 15, finalY + 12);
+        doc.text(`Total Nilai: ${persentase}`, 15, finalY + 5);
+        doc.text(`Persentase: ${persentase}%`, 15, finalY + 10);
         
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(parseInt(predikatWarna.slice(1,3), 16),
                          parseInt(predikatWarna.slice(3,5), 16),
                          parseInt(predikatWarna.slice(5,7), 16));
-        doc.text(`Predikat: ${predikat}`, 15, finalY + 18);
+        doc.text(`Predikat: ${predikat}`, 15, finalY + 15);
         doc.setTextColor(0, 0, 0);
         
         doc.setFont('helvetica', 'normal');
-        doc.text(`Status: ${jawabanData.statusKoreksi === 'selesai' ? 'Sudah Dikoreksi' : 'Menunggu Koreksi'}`, 15, finalY + 24);
+        doc.text(`Status: ${jawabanData.statusKoreksi === 'selesai' ? 'Sudah Dikoreksi' : 'Menunggu Koreksi'}`, 15, finalY + 20);
         if (jawabanData.statusKoreksi === 'selesai') {
-            doc.text(`Dikoreksi oleh: ${jawabanData.dikoreksiOleh || '-'}`, 15, finalY + 30);
+            doc.text(`Dikoreksi oleh: ${jawabanData.dikoreksiOleh || '-'}`, 15, finalY + 25);
         }
         
-        doc.setFontSize(8);
-        doc.text('Mengetahui,', 140, finalY + 10);
-        doc.text('Guru Mata Pelajaran', 140, finalY + 16);
-        doc.text('_________________________', 140, finalY + 24);
-        doc.text(`(${mapel})`, 140, finalY + 30);
-        doc.text('Orang Tua/Wali,', 140, finalY + 40);
-        doc.text('_________________________', 140, finalY + 48);
+        doc.setFontSize(7);
+        doc.text('Mengetahui,', 140, finalY + 5);
+        doc.text('Guru Mata Pelajaran', 140, finalY + 10);
+        doc.text('_________________________', 140, finalY + 16);
+        doc.text(`(${mapel})`, 140, finalY + 21);
+        doc.text('Orang Tua/Wali,', 140, finalY + 30);
+        doc.text('_________________________', 140, finalY + 36);
     } else {
-        doc.setFontSize(10);
+        doc.setFontSize(9);
         doc.setFont('helvetica', 'italic');
         doc.setTextColor(128, 128, 128);
         doc.text('* Belum ada data nilai untuk ujian ini *', 105, finalY, { align: 'center' });
@@ -705,7 +812,7 @@ async function generateSinglePDF(siswa, kelas, mapel, setting, jawabanData, soal
     const pageCount = doc.internal.getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
-        doc.setFontSize(8);
+        doc.setFontSize(7);
         doc.setTextColor(128, 128, 128);
         doc.text(`Halaman ${i} dari ${pageCount}`, 105, 287, { align: 'center' });
         doc.setDrawColor(200, 200, 200);
@@ -715,65 +822,7 @@ async function generateSinglePDF(siswa, kelas, mapel, setting, jawabanData, soal
     
     doc.save(`Lembar_Jawaban_${kelas}_${mapel}_${siswa.nama || siswa.nis || 'siswa'}.pdf`);
 }
-// Download Laporan Excel
-async function downloadLaporanKelas() {
-    const kelas = getElement('laporanKelas')?.value;
-    const mapel = getElement('laporanMapel')?.value;
-    
-    if (!kelas || !mapel) {
-        showToast('Pilih kelas dan mata pelajaran!', 'error');
-        return;
-    }
-    
-    try {
-        const nilaiSnapshot = await answersRef
-            .where('kelas', '==', kelas)
-            .where('mataPelajaran', '==', mapel)
-            .get();
-        
-        if (nilaiSnapshot.empty) {
-            showToast('Tidak ada data nilai untuk kelas ini', 'error');
-            return;
-        }
-        
-        const nilaiMap = new Map();
-        nilaiSnapshot.forEach(doc => {
-            const nilai = doc.data();
-            const key = nilai.siswaId;
-            if (!nilaiMap.has(key) || (nilai.waktu?.toDate?.() > nilaiMap.get(key).waktu?.toDate?.())) {
-                nilaiMap.set(key, nilai);
-            }
-        });
-        
-        const excelData = [['No', 'NIS', 'Nama Siswa', 'Kelas', 'Mata Pelajaran', 'Nilai PG', 'Nilai Isian', 'Nilai Uraian', 'Total Nilai', 'Status']];
-        let no = 1;
-        
-        for (const nilai of nilaiMap.values()) {
-            excelData.push([
-                no++,
-                nilai.nis || '-',
-                nilai.siswaNama || '-',
-                nilai.kelas || '-',
-                nilai.mataPelajaran || '-',
-                nilai.nilaiPG || 0,
-                nilai.nilaiIsian || 0,
-                nilai.nilaiUraian || 0,
-                nilai.nilaiTotal || 0,
-                nilai.statusKoreksi === 'pending' ? 'Menunggu Koreksi' : 'Selesai'
-            ]);
-        }
-        
-        const ws = XLSX.utils.aoa_to_sheet(excelData);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, `Nilai_${kelas}_${mapel}`);
-        XLSX.writeFile(wb, `Laporan_Nilai_${kelas}_${mapel}_${new Date().toISOString().split('T')[0]}.xlsx`);
-        
-        showToast(`✅ Laporan berhasil diunduh`, 'success');
-    } catch (error) {
-        console.error('Error downloading laporan:', error);
-        showToast('❌ Gagal download laporan', 'error');
-    }
-}
+
 
 function showToast(message, type = 'success') {
     const toastContainer = getElement('toastContainer');
