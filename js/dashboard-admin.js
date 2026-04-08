@@ -76,7 +76,6 @@ async function loadSiswaForKoreksi() {
     }
 }
 
-// ==================== FUNGSI LOAD NILAI ====================
 async function loadNilai() {
     const kelas = document.getElementById('filterKelasNilai')?.value;
     const mapel = document.getElementById('filterMapelNilai')?.value;
@@ -100,12 +99,11 @@ async function loadNilai() {
             return;
         }
         
-        // Group by siswa dan mapel, ambil yang terbaru
         const nilaiMap = new Map();
         
         snapshot.forEach(doc => {
             const nilai = doc.data();
-            const key = `${nilai.siswaId}_${nilai.mataPelajaran}`;
+            const key = nilai.siswaId + '_' + nilai.mataPelajaran;
             
             if (!nilaiMap.has(key) || (nilai.waktu?.toDate?.() > nilaiMap.get(key).waktu?.toDate?.())) {
                 nilaiMap.set(key, { id: doc.id, ...nilai });
@@ -133,17 +131,36 @@ async function loadNilai() {
             const totalIsian = nilai.totalIsian || 0;
             const totalUraian = nilai.totalUraian || 0;
             
-            const totalSekarang = nilaiPG + nilaiIsian + nilaiUraian;
-            const totalMaksimal = totalPG + totalIsian + totalUraian;
+            const jumlahSoal = (nilai.jumlahSoal?.pg || 0) + (nilai.jumlahSoal?.isian || 0) + (nilai.jumlahSoal?.uraian || 0);
+            
+            let nilaiAkhir = 0;
+            let totalNilai = 0;
+            
+            // CEK STATUS: Jika masih pending, jangan hitung nilai uraian
+            if (nilai.statusKoreksi === 'pending') {
+                // Hanya hitung PG + Isian, uraian belum dihitung
+                totalNilai = nilaiPG + nilaiIsian;
+                if (jumlahSoal > 0) {
+                    nilaiAkhir = (totalNilai * 100) / jumlahSoal;
+                    nilaiAkhir = Math.round(nilaiAkhir);
+                }
+            } else {
+                // Sudah selesai dikoreksi, hitung semua termasuk uraian
+                totalNilai = nilaiPG + nilaiIsian + nilaiUraian;
+                if (jumlahSoal > 0) {
+                    nilaiAkhir = (totalNilai * 100) / jumlahSoal;
+                    nilaiAkhir = Math.round(nilaiAkhir);
+                }
+            }
             
             let statusText = '';
             let statusClass = '';
             
             if (nilai.statusKoreksi === 'pending') {
-                statusText = '⏳ Menunggu Koreksi Essay';
+                statusText = 'Menunggu Koreksi Essay';
                 statusClass = 'status-pending';
             } else {
-                statusText = '✅ Selesai';
+                statusText = 'Selesai';
                 statusClass = 'status-selesai';
             }
             
@@ -152,16 +169,16 @@ async function loadNilai() {
             row.insertCell(1).textContent = nilai.siswaNama || '-';
             row.insertCell(2).textContent = nilai.kelas || '-';
             row.insertCell(3).textContent = nilai.mataPelajaran || '-';
-            row.insertCell(4).textContent = totalPG > 0 ? `${nilaiPG} / ${totalPG}` : '-';
-            row.insertCell(5).textContent = totalIsian > 0 ? `${nilaiIsian} / ${totalIsian}` : '-';
-            row.insertCell(6).textContent = totalUraian > 0 ? `${nilaiUraian} / ${totalUraian}` : '-';
-            row.insertCell(7).innerHTML = `<strong>${totalSekarang} / ${totalMaksimal}</strong>`;
-            row.insertCell(8).innerHTML = `<span class="exam-status ${statusClass}">${statusText}</span>`;
+            row.insertCell(4).textContent = totalPG > 0 ? nilaiPG + ' / ' + totalPG : '-';
+            row.insertCell(5).textContent = totalIsian > 0 ? nilaiIsian + ' / ' + totalIsian : '-';
+            row.insertCell(6).textContent = totalUraian > 0 ? nilaiUraian + ' / ' + totalUraian : '-';
+            row.insertCell(7).innerHTML = '<strong>' + nilaiAkhir + '</strong> / 100';
+            row.insertCell(8).innerHTML = '<span class="exam-status ' + statusClass + '">' + statusText + '</span>';
         }
         
     } catch (error) {
         console.error('Error loading nilai:', error);
-        tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: red;">Error: ${error.message}</td></tr>`;
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: red;">Error: ' + error.message + '</td></tr>';
     }
 }
 
