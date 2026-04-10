@@ -199,7 +199,6 @@ function showQuestion() {
         <div class="question-point">Nilai: ${question.nilai || 0} poin</div>
     `;
     
-    // 🔥 PERBAIKAN: Tampilkan gambar dengan modal
     if (question.gambar && question.gambar.trim() !== '') {
         questionHtml += `
             <div class="question-image-container" style="margin: 15px 0; text-align: center;">
@@ -214,6 +213,7 @@ function showQuestion() {
         `;
     }
     
+    // LANGSUNG, tanpa escapeHtml
     questionHtml += `<div class="question-text">${question.soal || 'Soal tidak tersedia'}</div>`;
     
     if (question.tipe === 'pg') {
@@ -230,7 +230,7 @@ function showQuestion() {
                 <div class="option ${isSelected ? 'selected' : ''}" 
                      onclick="selectOption('${question.id}', '${optionLetter}')">
                     <div class="option-marker">${optionLetter}</div>
-                    <div class="option-text">${optionLetter}. ${escapeHtml(pilihanText)}</div>
+                    <div class="option-text">${pilihanText}</div>
                 </div>
             `;
         });
