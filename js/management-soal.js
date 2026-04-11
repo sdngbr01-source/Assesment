@@ -147,6 +147,8 @@ function downloadTemplateSoal() {
     showToast('📥 Template soal berhasil diunduh', 'success');
 }
 
+// management-soal.js - Perbaiki fungsi handleSoalUpload
+
 async function handleSoalUpload(input) {
     const file = input.files[0];
     if (!file) return;
@@ -173,7 +175,7 @@ async function handleSoalUpload(input) {
             let success = 0;
             let failed = 0;
             
-            // Cari nomor terakhir untuk penomoran otomatis
+            // Cari nomor terakhir
             const existingQuery = await questionsRef
                 .where('kelas', '==', kelas)
                 .where('mataPelajaran', '==', mapel)
@@ -195,12 +197,23 @@ async function handleSoalUpload(input) {
                 
                 try {
                     lastNomor++;
+                    
+                    // 🔥 Kumpulkan gambar pilihan untuk PG
+                    let gambarPilihan = {};
+                    if (row.Tipe && row.Tipe.toLowerCase() === 'pg') {
+                        if (row.Gambar_A) gambarPilihan.A = row.Gambar_A;
+                        if (row.Gambar_B) gambarPilihan.B = row.Gambar_B;
+                        if (row.Gambar_C) gambarPilihan.C = row.Gambar_C;
+                        if (row.Gambar_D) gambarPilihan.D = row.Gambar_D;
+                    }
+                    
                     await questionsRef.add({
                         kelas: kelas,
                         mataPelajaran: mapel,
                         tipe: row.Tipe.toLowerCase(),
                         soal: row.Soal,
                         pilihan: row.Tipe === 'pg' ? [row.Pilihan_A || '', row.Pilihan_B || '', row.Pilihan_C || '', row.Pilihan_D || ''] : [],
+                        gambarPilihan: gambarPilihan,  // 🔥 FIELD BARU
                         kunci: row.Kunci || '',
                         gambar: row.Gambar || '',
                         nomor: lastNomor,
@@ -215,13 +228,14 @@ async function handleSoalUpload(input) {
             
             showToast(`✅ ${success} soal berhasil ditambahkan${failed > 0 ? `, ${failed} gagal` : ''}`, 'success');
             closeUploadSoalModal();
-            loadSoal(true); // Force refresh
+            loadSoal(true);
+            
         } catch (error) {
             console.error('Error reading file:', error);
             showToast('❌ Gagal membaca file', 'error');
         }
     };
-    reader.readAsArrayBuffer(file);
+    reader.readAsArrayBuffer(input);
 }
 
 function showUploadSoalModal() {
