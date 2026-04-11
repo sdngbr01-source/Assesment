@@ -187,7 +187,7 @@ function startTimer(duration) {
     }, 1000);
 }
 
-// 🔥 PERBAIKAN: Fungsi showQuestion dengan gambar yang benar
+// 🔥 PERBAIKAN: Fungsi showQuestion dengan gambar di pilihan jawaban
 function showQuestion() {
     const question = currentQuestions[currentQuestionIndex];
     const container = document.getElementById('questionContainer');
@@ -199,6 +199,7 @@ function showQuestion() {
         <div class="question-point">Nilai: ${question.nilai || 0} poin</div>
     `;
     
+    // Gambar soal
     if (question.gambar && question.gambar.trim() !== '') {
         questionHtml += `
             <div class="question-image-container" style="margin: 15px 0; text-align: center;">
@@ -213,24 +214,42 @@ function showQuestion() {
         `;
     }
     
-    // LANGSUNG, tanpa escapeHtml
+    // Teks soal
     questionHtml += `<div class="question-text">${question.soal || 'Soal tidak tersedia'}</div>`;
     
     if (question.tipe === 'pg') {
         questionHtml += '<div class="options">';
         const optionLetters = ['A', 'B', 'C', 'D'];
         const pilihan = question.pilihan || [];
+        const gambarPilihan = question.gambarPilihan || {}; // 🔥 Ambil gambar pilihan
         
         pilihan.forEach((pilihanText, index) => {
             if (!pilihanText) return;
             const optionLetter = optionLetters[index];
             const isSelected = currentAnswers[question.id] === optionLetter;
+            const gambarUrl = gambarPilihan[optionLetter]; // 🔥 URL gambar untuk pilihan ini
+            
+            // 🔥 Buat konten pilihan (dengan atau tanpa gambar)
+            let optionContent = '';
+            if (gambarUrl && gambarUrl.trim() !== '') {
+                optionContent = `
+                    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                        <img src="${gambarUrl}" 
+                             alt="Gambar ${optionLetter}" 
+                             style="width: 50px; height: 50px; object-fit: cover; border-radius: 8px;"
+                             onerror="this.style.display='none'">
+                        <span>${pilihanText}</span>
+                    </div>
+                `;
+            } else {
+                optionContent = pilihanText;
+            }
             
             questionHtml += `
                 <div class="option ${isSelected ? 'selected' : ''}" 
                      onclick="selectOption('${question.id}', '${optionLetter}')">
                     <div class="option-marker">${optionLetter}</div>
-                    <div class="option-text">${pilihanText}</div>
+                    <div class="option-text">${optionContent}</div>
                 </div>
             `;
         });
