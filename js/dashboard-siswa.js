@@ -202,11 +202,10 @@ function showQuestion() {
     // Gambar soal
     if (question.gambar && question.gambar.trim() !== '') {
         questionHtml += `
-            <div class="question-image-container" style="margin: 15px 0; text-align: center;">
+            <div class="question-image-container">
                 <img src="${question.gambar}" 
                      alt="Gambar soal" 
                      class="question-image"
-                     style="max-width: 100%; max-height: 250px; border-radius: 8px; cursor: pointer;"
                      onclick="showImageModal('${question.gambar}')"
                      onerror="this.style.display='none'">
                 <p style="font-size: 12px; color: #666; margin-top: 5px;">Klik gambar untuk memperbesar</p>
@@ -217,42 +216,33 @@ function showQuestion() {
     // Teks soal
     questionHtml += `<div class="question-text">${question.soal || 'Soal tidak tersedia'}</div>`;
     
+    // Pilihan Jawaban
     if (question.tipe === 'pg') {
         questionHtml += '<div class="options">';
         const optionLetters = ['A', 'B', 'C', 'D'];
         const pilihan = question.pilihan || [];
-        const gambarPilihan = question.gambarPilihan || {}; // 🔥 Ambil gambar pilihan
+        const gambarPilihan = question.gambarPilihan || {};
         
-        pilihan.forEach((pilihanText, index) => {
-            if (!pilihanText) return;
-            const optionLetter = optionLetters[index];
+        for (let i = 0; i < pilihan.length; i++) {
+            const pilihanText = pilihan[i];
+            if (!pilihanText) continue;
+            
+            const optionLetter = optionLetters[i];
             const isSelected = currentAnswers[question.id] === optionLetter;
-            const gambarUrl = gambarPilihan[optionLetter]; // 🔥 URL gambar untuk pilihan ini
+            const gambarUrl = (gambarPilihan && gambarPilihan[optionLetter]) ? gambarPilihan[optionLetter] : '';
             
-            // 🔥 Buat konten pilihan (dengan atau tanpa gambar)
-            let optionContent = '';
-            if (gambarUrl && gambarUrl.trim() !== '') {
-                optionContent = `
-                    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-                        <img src="${gambarUrl}" 
-                             alt="Gambar ${optionLetter}" 
-                             style="width: 50px; height: 50px; object-fit: cover; border-radius: 8px;"
-                             onerror="this.style.display='none'">
-                        <span>${pilihanText}</span>
-                    </div>
-                `;
-            } else {
-                optionContent = pilihanText;
+            questionHtml += `<div class="option ${isSelected ? 'selected' : ''}" onclick="selectOption('${question.id}', '${optionLetter}')">`;
+            questionHtml += `<div class="option-marker">${optionLetter}</div>`;
+            questionHtml += `<div class="option-text">`;
+            
+            if (gambarUrl) {
+                questionHtml += `<img src="${gambarUrl}" onerror="this.style.display='none'">`;
             }
-            
-            questionHtml += `
-                <div class="option ${isSelected ? 'selected' : ''}" 
-                     onclick="selectOption('${question.id}', '${optionLetter}')">
-                    <div class="option-marker">${optionLetter}</div>
-                    <div class="option-text">${optionContent}</div>
-                </div>
-            `;
-        });
+            questionHtml += `<span>${pilihanText}</span>`;
+            questionHtml += `</div>`; // tutup option-text
+            questionHtml += `</div>`; // tutup option
+        }
+        
         questionHtml += '</div>';
         
     } else if (question.tipe === 'isian') {
@@ -274,14 +264,20 @@ function showQuestion() {
         `;
     }
     
-    questionHtml += `
-        <div class="navigation-buttons">
-            ${currentQuestionIndex > 0 ? '<button class="nav-btn prev" onclick="prevQuestion()">← Sebelumnya</button>' : '<div></div>'}
-            ${currentQuestionIndex < currentQuestions.length - 1 ? 
-                '<button class="nav-btn next" onclick="nextQuestion()">Selanjutnya →</button>' : 
-                '<button class="nav-btn submit" onclick="submitExam()">Selesai</button>'}
-        </div>
-    `;
+    // Tombol navigasi
+    questionHtml += `<div class="navigation-buttons">`;
+    if (currentQuestionIndex > 0) {
+        questionHtml += `<button class="nav-btn prev" onclick="prevQuestion()">← Sebelumnya</button>`;
+    } else {
+        questionHtml += `<div></div>`;
+    }
+    
+    if (currentQuestionIndex < currentQuestions.length - 1) {
+        questionHtml += `<button class="nav-btn next" onclick="nextQuestion()">Selanjutnya →</button>`;
+    } else {
+        questionHtml += `<button class="nav-btn submit" onclick="submitExam()">Selesai</button>`;
+    }
+    questionHtml += `</div>`;
     
     container.innerHTML = questionHtml;
 }
