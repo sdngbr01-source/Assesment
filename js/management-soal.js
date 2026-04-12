@@ -149,28 +149,91 @@ function downloadTemplateSoal() {
 
 // management-soal.js - Perbaiki fungsi handleSoalUpload
 
-async function handleSoalUpload(input) {
-    const file = input.files[0];
-    if (!file) return;
+// management-soal.js - REPLACE THIS ENTIRE FUNCTION
+
+async function handleSoalUpload(inputElement) {
+    console.log('handleSoalUpload dipanggil', inputElement);
+    
+    // 🔥 AMBIL FILE dengan cara yang benar
+    let file = null;
+    
+    // Cek berbagai kemungkinan parameter yang masuk
+    if (inputElement && inputElement.target) {
+        // Jika dipanggil dari event (onchange)
+        file = inputElement.target.files[0];
+        inputElement = inputElement.target; // Simpan referensi element
+    } else if (inputElement && inputElement.files) {
+        // Jika dipanggil langsung dengan element
+        file = inputElement.files[0];
+    } else if (inputElement && inputElement.currentTarget) {
+        // Jika dari event
+        file = inputElement.currentTarget.files[0];
+        inputElement = inputElement.currentTarget;
+    }
+    
+    // 🔥 DEBUG: Lihat apa yang diterima
+    console.log('File yang diterima:', file);
+    console.log('Input element:', inputElement);
+    
+    // 🔥 CEK apakah file ada
+    if (!file) {
+        showToast('Pilih file terlebih dahulu!', 'error');
+        if (inputElement) inputElement.value = '';
+        return;
+    }
+    
+    // 🔥 CEK apakah file adalah Blob/File
+    if (!(file instanceof File) && !(file instanceof Blob)) {
+        console.error('File bukan instance File/Blob:', file);
+        showToast('File tidak valid, coba lagi!', 'error');
+        if (inputElement) inputElement.value = '';
+        return;
+    }
     
     const kelas = document.getElementById('uploadKelas')?.value;
     const mapel = document.getElementById('uploadMapel')?.value;
     
     if (!kelas || !mapel) {
         showToast('Pilih kelas dan mata pelajaran terlebih dahulu!', 'error');
-        input.value = '';
+        if (inputElement) inputElement.value = '';
+        return;
+    }
+    
+    // 🔥 CEK ekstensi file
+    const validExtensions = ['.xlsx', '.xls', '.csv'];
+    const fileName = file.name.toLowerCase();
+    const isValid = validExtensions.some(ext => fileName.endsWith(ext));
+    
+    if (!isValid) {
+        showToast('File harus berupa Excel (.xlsx, .xls, .csv)', 'error');
+        if (inputElement) inputElement.value = '';
         return;
     }
     
     showToast('📤 Memproses file...', 'info');
     
+    // 🔥 BUAT FileReader BARU
     const reader = new FileReader();
+    
     reader.onload = async function(e) {
         try {
+            if (!e.target || !e.target.result) {
+                throw new Error('Gagal membaca file');
+            }
+            
             const data = new Uint8Array(e.target.result);
             const workbook = XLSX.read(data, { type: 'array' });
+            
+            if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+                throw new Error('File Excel tidak memiliki sheet');
+            }
+            
             const sheet = workbook.Sheets[workbook.SheetNames[0]];
             const jsonData = XLSX.utils.sheet_to_json(sheet);
+            
+            if (!jsonData || jsonData.length === 0) {
+                throw new Error('Tidak ada data di file Excel');
+            }
             
             let success = 0;
             let failed = 0;
@@ -198,7 +261,7 @@ async function handleSoalUpload(input) {
                 try {
                     lastNomor++;
                     
-                    // 🔥 Kumpulkan gambar pilihan untuk PG
+                    // Kumpulkan gambar pilihan untuk PG
                     let gambarPilihan = {};
                     if (row.Tipe && row.Tipe.toLowerCase() === 'pg') {
                         if (row.Gambar_A) gambarPilihan.A = row.Gambar_A;
@@ -213,7 +276,7 @@ async function handleSoalUpload(input) {
                         tipe: row.Tipe.toLowerCase(),
                         soal: row.Soal,
                         pilihan: row.Tipe === 'pg' ? [row.Pilihan_A || '', row.Pilihan_B || '', row.Pilihan_C || '', row.Pilihan_D || ''] : [],
-                        gambarPilihan: gambarPilihan,  // 🔥 FIELD BARU
+                        gambarPilihan: gambarPilihan,
                         kunci: row.Kunci || '',
                         gambar: row.Gambar || '',
                         nomor: lastNomor,
@@ -231,11 +294,28 @@ async function handleSoalUpload(input) {
             loadSoal(true);
             
         } catch (error) {
-            console.error('Error reading file:', error);
-            showToast('❌ Gagal membaca file', 'error');
+            console.error('Error processing file:', error);
+            showToast('❌ ' + error.message, 'error');
         }
+        
+        // Reset input file
+        if (inputElement) inputElement.value = '';
     };
-    reader.readAsArrayBuffer(input);
+    
+    reader.onerror = function(error) {
+        console.error('FileReader error:', error);
+        showToast('Gagal membaca file', 'error');
+        if (inputElement) inputElement.value = '';
+    };
+    
+    // 🔥 BACA FILE sebagai ArrayBuffer
+    try {
+        reader.readAsArrayBuffer(file);
+    } catch (err) {
+        console.error('Error calling readAsArrayBuffer:', err);
+        showToast('Gagal membaca file: ' + err.message, 'error');
+        if (inputElement) inputElement.value = '';
+    }
 }
 
 function showUploadSoalModal() {
