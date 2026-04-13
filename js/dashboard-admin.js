@@ -308,3 +308,478 @@ function showToast(message, type = 'success') {
     
     setTimeout(() => toast.remove(), 3000);
 }
+
+// ==================== STATUS LOGIN SISWA ====================
+// Load data status login siswa
+async function loadStatusLogin() {
+    const tbody = document.getElementById('statusLoginTableBody');
+    if (!tbody) return;
+    
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">Loading data...</td></tr>';
+    
+    // Ambil filter
+    const filterKelas = document.getElementById('statusFilterKelas')?.value || '';
+    const filterMapel = document.getElementById('statusFilterMapel')?.value || '';
+    const filterSearch = document.getElementById('statusFilterSearch')?.value.toLowerCase() || '';
+    const filterStatus = document.getElementById('statusFilterStatus')?.value || '';
+    
+    try {
+        // 1. Ambil semua siswa
+        const siswaSnapshot = await usersRef
+            .where('role', '==', 'siswa')
+            .get();
+        
+        const semuaSiswa = [];
+        siswaSnapshot.forEach(doc => {
+            semuaSiswa.push({
+                id: doc.id,
+                ...doc.data()
+            });
+        });
+        
+        // Filter siswa berdasarkan kelas
+        let filteredSiswa = semuaSiswa;
+        if (filterKelas) {
+            filteredSiswa = filteredSiswa.filter(s => s.kelas === filterKelas);
+        }
+        if (filterSearch) {
+            filteredSiswa = filteredSiswa.filter(s => 
+                (s.nama || '').toLowerCase().includes(filterSearch) ||
+                (s.nis || '').toLowerCase().includes(filterSearch)
+            );
+        }
+        
+        // 2. Ambil semua ujian aktif
+        const examsSnapshot = await examsRef
+            .where('aktif', '==', true)
+            .get();
+        
+        const semuaExam = [];
+        examsSnapshot.forEach(doc => {
+            semuaExam.push({
+                id: doc.id,
+                ...doc.data()
+            });
+        });
+        
+        // Filter exam berdasarkan mapel
+        let filteredExam = semuaExam;
+        if (filterMapel) {
+            filteredExam = filteredExam.filter(e => e.mataPelajaran === filterMapel);
+        }
+        
+        // 3. Ambil semua blokir
+        const blocksSnapshot = await firebase.firestore().collection('student_blocks').get();
+        const blocksMap = new Map();
+        blocksSnapshot.forEach(doc => {
+            const data = doc.data();
+            const key = `${data.siswaId}_${data.examId}`;
+            blocksMap.set(key, data);
+        });
+        
+        // 4. 🔥 PERBAIKAN: Ambil SEMUA jawaban (termasuk status pending)
+//    Karena jika sudah ada data answers, berarti siswa sudah mengumpulkan ujian
+const answersSnapshot = await answersRef.get();  // Hapus filter where
+
+const completedMap = new Map();
+const pendingMap = new Map(); // Untuk menyimpan status pending
+
+answersSnapshot.forEach(doc => {
+    const data = doc.data();
+    const key = `${data.siswaId}_${data.examId}`;
+    
+    // Apapun statusnya, tetap dianggap SELESAI karena sudah mengumpulkan
+    completedMap.set(key, true);
+    
+    // Catat jika statusnya pending (untuk ditampilkan di tooltip)
+    if (data.statusKoreksi === 'pending' || data.statusSubmit === 'pending') {
+        pendingMap.set(key, true);
+    }
+});
+        
+        // 5. Ambil log pelanggaran untuk hitung kesempatan
+        const logsSnapshot = await firebase.firestore().collection('safe_exam_logs')
+            .where('isMaxViolation', '==', true)
+            .get();
+        
+        const restartCountMap = new Map();
+        logsSnapshot.forEach(doc => {
+            const data = doc.data();
+            const key = `${data.siswaId}_${data.examId}`;
+            const current = restartCountMap.get(key) || 0;
+            restartCountMap.set(key, current + 1);
+        });
+        
+        // 6. Bangun data tabel
+        let tableData = [];
+        
+        for (const siswa of filteredSiswa) {
+            for (const exam of filteredExam) {
+                // Hanya tampilkan exam yang sesuai kelas siswa
+                if (exam.kelas !== siswa.kelas) continue;
+                
+                const key = `${siswa.id}_${exam.id}`;
+                const isBlocked = blocksMap.has(key) && 
+                                  blocksMap.get(key).status === 'blocked' && 
+                                  !blocksMap.get(key).reseted;
+                const isCompleted = completedMap.has(key);
+                const restartCount = restartCountMap.get(key) || 0;
+                const remainingChances = Math.max(0, 3 - restartCount);
+                const blockData = blocksMap.get(key);
+                
+                let status = 'login';
+                let statusText = '✅ Login / Aktif';
+                let statusClass = 'status-login';
+                
+                if (isCompleted) {
+                    status = 'selesai';
+                    statusText = '📗 Selesai';
+                    statusClass = 'status-selesai';
+                } else if (isBlocked) {
+                    status = 'blocked';
+                    statusText = '🔒 Diblokir';
+                    statusClass = 'status-blocked';
+                }
+                
+                // Filter berdasarkan status
+                if (filterStatus && status !== filterStatus) continue;
+                
+                tableData.push({
+                    siswaId: siswa.id,
+                    siswaNama: siswa.nama || '-',
+                    nis: siswa.nis || '-',
+                    kelas: siswa.kelas || '-',
+                    examId: exam.id,
+                    mataPelajaran: exam.mataPelajaran,
+                    status: status,
+                    statusText: statusText,
+                    statusClass: statusClass,
+                    remainingChances: remainingChances,
+                    lastUpdate: blockData?.waktu?.toDate() || new Date(),
+                    isBlocked: isBlocked,
+                    isCompleted: isCompleted
+                });
+            }
+        }
+        
+        // Update statistik
+        updateStatusStatistics(tableData);
+        
+        // Render tabel
+        renderStatusTable(tableData);
+        
+        // Load dropdown kelas jika perlu
+        if (document.getElementById('statusFilterKelas')?.options.length <= 1) {
+            await loadKelasToStatusFilter();
+        }
+        
+    } catch (error) {
+        console.error('Error loading status login:', error);
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: red;">Error: ${error.message}</td></tr>`;
+    }
+}
+
+// Update statistik status login
+function updateStatusStatistics(tableData) {
+    const loginCount = tableData.filter(d => d.status === 'login').length;
+    const blockedCount = tableData.filter(d => d.status === 'blocked').length;
+    const completedCount = tableData.filter(d => d.status === 'selesai').length;
+    const totalCount = tableData.length;
+    
+    const statLogin = document.getElementById('statLoginCount');
+    const statBlocked = document.getElementById('statBlockedCount');
+    const statCompleted = document.getElementById('statCompletedCount');
+    const statTotal = document.getElementById('statTotalCount');
+    
+    if (statLogin) statLogin.textContent = loginCount;
+    if (statBlocked) statBlocked.textContent = blockedCount;
+    if (statCompleted) statCompleted.textContent = completedCount;
+    if (statTotal) statTotal.textContent = totalCount;
+}
+
+// Render tabel status login
+function renderStatusTable(data) {
+    const tbody = document.getElementById('statusLoginTableBody');
+    
+    if (!tbody) return;
+    
+    if (data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">📭 Tidak ada data sesuai filter</td></tr>';
+        return;
+    }
+    
+    let html = '';
+    data.forEach((item, index) => {
+        const lastUpdateStr = item.lastUpdate ? 
+            new Date(item.lastUpdate).toLocaleString('id-ID') : 
+            '-';
+        
+        const isResetDisabled = item.status !== 'blocked';
+        
+        html += `
+            <tr>
+                <td>${index + 1}</td>
+                <td><strong>${escapeHtml(item.siswaNama)}</strong></td>
+                <td>${escapeHtml(item.nis)}</td>
+                <td>Kelas ${escapeHtml(item.kelas)}</td>
+                <td>${escapeHtml(item.mataPelajaran)}</td>
+                <td>
+                    <span class="status-badge ${item.statusClass}">
+                        ${item.statusText}
+                    </span>
+                </td>
+                <td style="text-align: center;">
+                    ${item.status === 'login' ? `🎫 ${item.remainingChances} x` : '-'}
+                </td>
+                <td>${lastUpdateStr}</td>
+                <td>
+                    <button class="btn-reset" 
+                        onclick="openResetStatusModal('${item.siswaId}', '${escapeHtml(item.siswaNama)}', '${item.examId}', '${escapeHtml(item.mataPelajaran)}')"
+                        ${isResetDisabled ? 'disabled' : ''}>
+                        🔓 Reset
+                    </button>
+                </td>
+            </tr>
+        `;
+    });
+    
+    tbody.innerHTML = html;
+}
+
+// Load kelas ke filter dropdown
+async function loadKelasToStatusFilter() {
+    const kelasSelect = document.getElementById('statusFilterKelas');
+    if (!kelasSelect) return;
+    
+    try {
+        const snapshot = await usersRef
+            .where('role', '==', 'siswa')
+            .get();
+        
+        const kelasSet = new Set();
+        snapshot.forEach(doc => {
+            const kelas = doc.data().kelas;
+            if (kelas) kelasSet.add(kelas);
+        });
+        
+        const sortedKelas = Array.from(kelasSet).sort();
+        
+        // Hanya tambahkan jika belum ada opsi
+        if (kelasSelect.options.length <= 1) {
+            sortedKelas.forEach(kelas => {
+                kelasSelect.innerHTML += `<option value="${kelas}">${kelas}</option>`;
+            });
+        }
+        
+    } catch (error) {
+        console.error('Error loading kelas filter:', error);
+    }
+}
+
+// Reset filter status login
+function resetStatusFilter() {
+    const kelasSelect = document.getElementById('statusFilterKelas');
+    const mapelSelect = document.getElementById('statusFilterMapel');
+    const searchInput = document.getElementById('statusFilterSearch');
+    const statusSelect = document.getElementById('statusFilterStatus');
+    
+    if (kelasSelect) kelasSelect.value = '';
+    if (mapelSelect) mapelSelect.value = '';
+    if (searchInput) searchInput.value = '';
+    if (statusSelect) statusSelect.value = '';
+    
+    loadStatusLogin();
+}
+
+let selectedResetData = null;
+
+// Open modal reset status
+function openResetStatusModal(siswaId, siswaNama, examId, mataPelajaran) {
+    console.log("Open reset modal:", siswaId, siswaNama, examId, mataPelajaran);
+    
+    selectedResetData = {
+        siswaId: siswaId,
+        siswaNama: siswaNama,
+        examId: examId,
+        mataPelajaran: mataPelajaran
+    };
+    
+    // Gunakan confirm biasa dulu untuk testing
+    if (confirm(`Apakah Anda yakin ingin mereset blokir untuk:\n\n${siswaNama}\nMapel: ${mataPelajaran}\n\nSetelah direset, siswa dapat mengerjakan ujian dari awal dengan 3 kesempatan baru.`)) {
+        confirmResetStatus();
+    }
+}
+
+// Close modal
+function closeResetStatusModal() {
+    const modal = document.getElementById('resetStatusModal');
+    if (modal) modal.style.display = 'none';
+    selectedResetData = null;
+}
+
+// Confirm reset status
+async function confirmResetStatus() {
+    console.log("Confirm reset dipanggil", selectedResetData);
+    
+    if (!selectedResetData) {
+        console.log("Tidak ada data reset");
+        return;
+    }
+    
+    const { siswaId, siswaNama, examId, mataPelajaran } = selectedResetData;
+    
+    try {
+        showToast(`🔄 Mereset blokir untuk ${siswaNama}...`, 'info');
+        
+        // 1. Update student_blocks
+        const blockRef = firebase.firestore().collection('student_blocks');
+        const blockDocId = `${siswaId}_${examId}`;
+        const blockDoc = await blockRef.doc(blockDocId).get();
+        
+        if (blockDoc.exists) {
+            await blockRef.doc(blockDocId).update({
+                reseted: true,
+                resetBy: currentUser?.nama || 'Admin',
+                resetTime: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            console.log("Block document updated");
+        } else {
+            // Jika tidak ada document, buat saja
+            await blockRef.doc(blockDocId).set({
+                siswaId: siswaId,
+                siswaNama: siswaNama,
+                examId: examId,
+                mataPelajaran: mataPelajaran,
+                status: 'blocked',
+                reseted: true,
+                resetBy: currentUser?.nama || 'Admin',
+                resetTime: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            console.log("Block document created");
+        }
+        
+        // 2. Catat log reset
+        await firebase.firestore().collection('reset_logs').add({
+            siswaId: siswaId,
+            siswaNama: siswaNama,
+            examId: examId,
+            mataPelajaran: mataPelajaran,
+            action: 'reset',
+            resetBy: currentUser?.nama || 'Admin',
+            waktu: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // 3. Hapus data pelanggaran (safe_exam_logs)
+        const logsSnapshot = await firebase.firestore().collection('safe_exam_logs')
+            .where('siswaId', '==', siswaId)
+            .where('examId', '==', examId)
+            .get();
+        
+        const batch = firebase.firestore().batch();
+        logsSnapshot.forEach(doc => {
+            batch.delete(doc.ref);
+        });
+        await batch.commit();
+        
+        showToast(`✅ Berhasil mereset blokir untuk ${siswaNama} (${mataPelajaran})`, 'success');
+        
+        // Refresh tabel
+        await loadStatusLogin();
+        
+        // Reset selected data
+        selectedResetData = null;
+        
+    } catch (error) {
+        console.error('Error resetting status:', error);
+        showToast(`❌ Gagal reset: ${error.message}`, 'error');
+    }
+}
+
+// Perbaiki fungsi close modal jika ada
+function closeResetStatusModal() {
+    selectedResetData = null;
+    const modal = document.getElementById('resetStatusModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+// Escape HTML helper
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Load status login saat tab diaktifkan
+// Override switchTab untuk menambahkan statuslogin
+const originalSwitchTab = window.switchTab;
+window.switchTab = function(tabName) {
+    if (originalSwitchTab) {
+        originalSwitchTab(tabName);
+    } else {
+        // Sembunyikan semua tab
+        document.querySelectorAll('.tab-content').forEach(tab => {
+            tab.classList.remove('active');
+        });
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        document.getElementById(`tab-${tabName}`).classList.add('active');
+        if (event && event.target) event.target.classList.add('active');
+    }
+    
+    // Load data khusus untuk tab statuslogin
+    if (tabName === 'statuslogin') {
+        setTimeout(() => {
+            loadKelasToStatusFilter();
+            loadStatusLogin();
+        }, 100);
+    }
+};
+
+// Tambahkan CSS untuk status badge
+const style = document.createElement('style');
+style.textContent = `
+    .status-badge {
+        display: inline-block;
+        padding: 5px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    .status-login {
+        background: #d4edda;
+        color: #155724;
+    }
+    .status-blocked {
+        background: #f8d7da;
+        color: #721c24;
+    }
+    .status-selesai {
+        background: #d1ecf1;
+        color: #0c5460;
+    }
+    .btn-reset {
+        background: #ffc107;
+        color: #333;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        transition: all 0.3s;
+    }
+    .btn-reset:hover:not(:disabled) {
+        background: #e0a800;
+    }
+    .btn-reset:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+    }
+`;
+document.head.appendChild(style);
+
+
