@@ -1,6 +1,3 @@
-// dashboard-siswa.js - SAFE EXAM MODE (Proctoring Ringan)
-
-// Ambil data user dari sessionStorage
 const currentUser = JSON.parse(sessionStorage.getItem('currentUser'));
 let currentExam = null;
 let currentQuestions = [];
@@ -15,17 +12,41 @@ let violationCount = 0;
 let isRestarting = false;
 let proctorInterval = null;
 
+// 🔥 PERBAIKAN: Cooldown system
+let lastViolationTime = 0;
+let violationCooldown = 5000; // 5 detik cooldown antara pelanggaran
+let lastViolationReason = '';
+let isInCooldown = false;
+
+// 🔥 PERBAIKAN: Reset violation counter setelah berhasil
+let lastSuccessfulAction = Date.now();
+const VIOLATION_RESET_TIME = 30000; // Reset counter setelah 30 detik tanpa pelanggaran
+
 // Konfigurasi Safe Exam
 const SAFE_EXAM_CONFIG = {
-    maxViolations: 3,           // Maksimal pelanggaran sebelum submit paksa
-    checkInterval: 500,         // Interval pengecekan (ms)
-    allowedWindowSize: 0.8,     // Minimal ukuran window 80% dari layar
-    preventCopyPaste: true,     // Cegah copy-paste
-    preventScreenshot: true,    // Cegah screenshot
-    preventDevTools: true,      // Cegah DevTools
-    requireFullscreen: true,    // Wajib fullscreen
-    logViolations: true         // Catat pelanggaran
+    maxViolations: 3,           
+    checkInterval: 1000,        // 🔥 DIUBAH: jadi 1 detik (agar tidak terlalu sering)
+    allowedWindowSize: 0.7,     // 🔥 DIUBAH: lebih longgar (70%)
+    preventCopyPaste: true,
+    preventScreenshot: true,
+    preventDevTools: true,
+    requireFullscreen: false,   // 🔥 DIUBAH: fullscreen tidak wajib (agar tidak terus-terusan)
+    logViolations: true
 };
+
+// 🔥 FUNGSI BARU: Reset counter setelah periode aman
+function checkAndResetViolationCounter() {
+    if (!examActive || isRestarting) return;
+    
+    const now = Date.now();
+    if (now - lastSuccessfulAction >= VIOLATION_RESET_TIME && violationCount > 0) {
+        // Reset counter karena sudah lama tidak ada pelanggaran
+        violationCount = 0;
+        lastViolationReason = '';
+        updateBadgeStatus(false);
+        console.log('✅ Violation counter reset - periode aman tercapai');
+    }
+}
 
 // Inisialisasi Safe Exam
 function initSafeExam() {
@@ -33,12 +54,15 @@ function initSafeExam() {
     examStartTime = Date.now();
     violationCount = 0;
     isRestarting = false;
+    lastViolationTime = 0;
+    isInCooldown = false;
+    lastSuccessfulAction = Date.now();
     
     // Tampilkan indikator keamanan
     showSecurityBadge();
     showWatermark();
     
-    // Minta fullscreen
+    // Minta fullscreen (opsional, tidak wajib)
     if (SAFE_EXAM_CONFIG.requireFullscreen) {
         requestFullscreen();
     }
@@ -62,9 +86,10 @@ function initSafeExam() {
     // Deteksi resize (split screen)
     window.addEventListener('resize', handleResize);
     
-    // Deteksi fullscreen change
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    // 🔥 RESET COUNTER PERIODIK
+    setInterval(() => {
+        checkAndResetViolationCounter();
+    }, 5000);
 }
 
 // Tampilkan badge keamanan
@@ -112,143 +137,87 @@ function startProctoring() {
     proctorInterval = setInterval(() => {
         if (!examActive || isRestarting) return;
         
+        // 🔥 Cek dan reset counter secara periodik
+        checkAndResetViolationCounter();
+        
         const checks = [];
         
-        // 1. Cek fullscreen
+        // 1. Cek fullscreen (hanya jika diwajibkan)
         if (SAFE_EXAM_CONFIG.requireFullscreen && !isFullscreen()) {
             checks.push('FULLSCREEN_OFF');
         }
         
-        // 2. Cek ukuran window (split screen)
+        // 2. Cek ukuran window (split screen) - lebih longgar
         const windowWidth = window.innerWidth;
         const screenWidth = screen.width;
         const ratio = windowWidth / screenWidth;
-        if (ratio < SAFE_EXAM_CONFIG.allowedWindowSize) {
+        if (ratio < SAFE_EXAM_CONFIG.allowedWindowSize && windowWidth < 500) {
             checks.push('SPLIT_SCREEN');
         }
         
-        // 3. Cek apakah window terlalu kecil
-        if (window.innerWidth < 400 || window.innerHeight < 400) {
+        // 3. Cek apakah window terlalu kecil (lebih longgar)
+        if (window.innerWidth < 300 || window.innerHeight < 300) {
             checks.push('WINDOW_TOO_SMALL');
         }
         
-        // 4. Cek devtools (jika terbuka)
-        if (SAFE_EXAM_CONFIG.preventDevTools && isDevToolsOpen()) {
-            checks.push('DEVTOOLS_OPEN');
-        }
-        
-        // Jika ada pelanggaran
+        // Jika ada pelanggaran, handle dengan cooldown
         if (checks.length > 0) {
             handleViolation(checks.join(', '));
+        } else {
+            // 🔥 Tidak ada pelanggaran, update last successful action
+            lastSuccessfulAction = Date.now();
         }
         
     }, SAFE_EXAM_CONFIG.checkInterval);
 }
 
-// Deteksi DevTools terbuka
-function isDevToolsOpen() {
-    // Method 1: Cek lebar vs tinggi
-    const threshold = 160;
-    const widthDiff = window.outerWidth - window.innerWidth;
-    const heightDiff = window.outerHeight - window.innerHeight;
-    
-    if (widthDiff > threshold || heightDiff > threshold) {
-        return true;
-    }
-    
-    // Method 2: Cek via console (tidak bisa dideteksi langsung, tapi ini fallback)
-    try {
-        const element = new Image();
-        Object.defineProperty(element, 'id', {
-            get: function() {
-                return true;
-            }
-        });
-        console.log(element);
-        return false;
-    } catch(e) {
-        return true;
-    }
-}
-
-// Handle visibility change (pindah tab)
-function handleVisibilityChange() {
-    if (!examActive || isRestarting) return;
-    
-    if (document.hidden) {
-        handleViolation('TAB_SWITCH');
-    }
-}
-
-// Handle resize (split screen)
-let resizeTimeout;
-function handleResize() {
-    if (!examActive || isRestarting) return;
-    
-    clearTimeout(resizeTimeout);
-    resizeTimeout = setTimeout(() => {
-        const ratio = window.innerWidth / screen.width;
-        if (ratio < SAFE_EXAM_CONFIG.allowedWindowSize) {
-            handleViolation('SPLIT_SCREEN');
-        }
-    }, 200);
-}
-
-// Handle fullscreen change
-function handleFullscreenChange() {
-    if (!examActive || isRestarting) return;
-    
-    if (SAFE_EXAM_CONFIG.requireFullscreen && !isFullscreen()) {
-        handleViolation('FULLSCREEN_EXIT');
-    }
-}
-
-// Handle before unload (refresh/tutup)
-function handleBeforeUnload(e) {
-    if (examActive && !isRestarting) {
-        e.preventDefault();
-        e.returnValue = '⚠️ PERINGATAN! Anda sedang dalam ujian mode SAFE EXAM.\n\nJika me-refresh atau menutup halaman, ujian akan diulang dari awal.\n\nApakah Anda yakin?';
-        return e.returnValue;
-    }
-}
-
-// Handle pop state (tombol back)
-function handlePopState(e) {
-    if (examActive && !isRestarting) {
-        handleViolation('BACK_BUTTON');
-        history.pushState(null, null, location.href);
-        e.preventDefault();
-        return false;
-    }
-}
-
-// Handle pelanggaran
+// 🔥 HANDLE VIOLATION DENGAN COOLDOWN
 async function handleViolation(reason) {
     if (!examActive || isRestarting) return;
+    
+    const now = Date.now();
+    
+    // 🔥 CEK COOLDOWN: Jika masih dalam cooldown, abaikan
+    if (now - lastViolationTime < violationCooldown) {
+        console.log(`Cooldown aktif, abaikan pelanggaran: ${reason}`);
+        return;
+    }
+    
+    // 🔥 CEK: Jika reason sama dengan sebelumnya dan dalam waktu singkat, abaikan
+    if (lastViolationReason === reason && (now - lastViolationTime) < 10000) {
+        console.log(`Pelanggaran berulang (${reason}) - diabaikan`);
+        return;
+    }
+    
+    // Update last violation
+    lastViolationTime = now;
+    lastViolationReason = reason;
     
     violationCount++;
     
     // Update badge
     updateBadgeStatus(true);
     
-    // Tampilkan peringatan
+    // Tampilkan peringatan (hanya sekali per cooldown)
     const warningMessage = `⚠️ PELANGGARAN DETEKSI! ⚠️\n\nPelanggaran: ${formatViolationReason(reason)}\n\nPeringatan: ${violationCount}/${SAFE_EXAM_CONFIG.maxViolations}`;
     
     if (violationCount >= SAFE_EXAM_CONFIG.maxViolations) {
         alert(`${warningMessage}\n\n❌ UJIAN DIHENTIKAN! Anda telah melanggar aturan sebanyak ${violationCount} kali.\n\nUjian akan diulang dari awal.`);
         await saveViolationLog(reason, true);
+        
+        // 🔥 RESET sebelum restart
+        violationCount = 0;
         await restartExamFromBeginning(reason);
     } else {
         alert(`${warningMessage}\n\n⚠️ HATI-HATI! Jika mencapai ${SAFE_EXAM_CONFIG.maxViolations} pelanggaran, ujian akan diulang dari awal!`);
         await saveViolationLog(reason, false);
         
-        // Kembalikan ke mode fullscreen jika keluar
-        if (SAFE_EXAM_CONFIG.requireFullscreen && !isFullscreen()) {
-            setTimeout(() => requestFullscreen(), 1000);
-        }
-        
-        // Update badge kembali ke normal setelah 3 detik
-        setTimeout(() => updateBadgeStatus(false), 3000);
+        // 🔥 Reset badge setelah 3 detik
+        setTimeout(() => {
+            if (examActive && !isRestarting) {
+                updateBadgeStatus(false);
+            }
+        }, 3000);
     }
 }
 
@@ -271,9 +240,69 @@ function formatViolationReason(reason) {
     return reasons[reason] || reason;
 }
 
+// Handle visibility change (pindah tab) - DENGAN COOLDOWN
+function handleVisibilityChange() {
+    if (!examActive || isRestarting) return;
+    
+    if (document.hidden) {
+        handleViolation('TAB_SWITCH');
+    } else {
+        // 🔥 Kembali ke tab, update last successful action
+        lastSuccessfulAction = Date.now();
+    }
+}
+
+// Handle resize (split screen) - DENGAN THROTTLE
+let resizeTimeout;
+function handleResize() {
+    if (!examActive || isRestarting) return;
+    
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(() => {
+        const ratio = window.innerWidth / screen.width;
+        if (ratio < SAFE_EXAM_CONFIG.allowedWindowSize && window.innerWidth < 500) {
+            handleViolation('SPLIT_SCREEN');
+        } else {
+            // 🔥 Resize normal, update last successful action
+            lastSuccessfulAction = Date.now();
+        }
+    }, 500);
+}
+
+// Handle fullscreen change
+function handleFullscreenChange() {
+    if (!examActive || isRestarting) return;
+    
+    if (SAFE_EXAM_CONFIG.requireFullscreen && !isFullscreen()) {
+        handleViolation('FULLSCREEN_EXIT');
+    } else {
+        // 🔥 Fullscreen normal
+        lastSuccessfulAction = Date.now();
+    }
+}
+
+// Handle before unload (refresh/tutup)
+function handleBeforeUnload(e) {
+    if (examActive && !isRestarting) {
+        e.preventDefault();
+        e.returnValue = '⚠️ PERINGATAN! Anda sedang dalam ujian mode SAFE EXAM.\n\nJika me-refresh atau menutup halaman, ujian akan diulang dari awal.\n\nApakah Anda yakin?';
+        return e.returnValue;
+    }
+}
+
+// Handle pop state (tombol back)
+function handlePopState(e) {
+    if (examActive && !isRestarting) {
+        handleViolation('BACK_BUTTON');
+        history.pushState(null, null, location.href);
+        e.preventDefault();
+        return false;
+    }
+}
+
 // Aktifkan security blocks
 function enableSecurityBlocks() {
-    // Blokir klik kanan
+    // Blokir klik kanan - DENGAN COOLDOWN
     document.addEventListener('contextmenu', (e) => {
         if (examActive && !isRestarting) {
             e.preventDefault();
@@ -282,7 +311,7 @@ function enableSecurityBlocks() {
         }
     });
     
-    // Blokir copy-paste
+    // Blokir copy-paste - DENGAN COOLDOWN
     if (SAFE_EXAM_CONFIG.preventCopyPaste) {
         document.addEventListener('copy', (e) => {
             if (examActive && !isRestarting) {
@@ -308,33 +337,25 @@ function enableSecurityBlocks() {
         });
     }
     
-    // Blokir shortcut keyboard
+    // Blokir shortcut keyboard - DENGAN COOLDOWN
     document.addEventListener('keydown', (e) => {
         if (!examActive || isRestarting) return;
         
-        const blockedKeys = ['F12', 'F5', 'F11', 'PrintScreen', 'Insert', 'Home', 'End'];
+        const blockedKeys = ['F12', 'F5', 'PrintScreen', 'Insert', 'Home', 'End'];
         const blockedCombos = [
             { ctrl: true, key: 'r' }, { ctrl: true, key: 'R' },
             { ctrl: true, key: 'u' }, { ctrl: true, key: 'U' },
             { ctrl: true, key: 's' }, { ctrl: true, key: 'S' },
-            { ctrl: true, key: 'p' }, { ctrl: true, key: 'P' },
             { ctrl: true, key: 'c' }, { ctrl: true, key: 'C' },
-            { ctrl: true, key: 'v' }, { ctrl: true, key: 'V' },
-            { ctrl: true, key: 'x' }, { ctrl: true, key: 'X' },
-            { ctrl: true, key: 'a' }, { ctrl: true, key: 'A' },
-            { ctrl: true, key: 't' }, { ctrl: true, key: 'T' },
-            { ctrl: true, key: 'w' }, { ctrl: true, key: 'W' },
-            { ctrl: true, key: 'n' }, { ctrl: true, key: 'N' }
+            { ctrl: true, key: 'v' }, { ctrl: true, key: 'V' }
         ];
         
-        // Cek tombol individual
         if (blockedKeys.includes(e.key)) {
             e.preventDefault();
             handleViolation('SHORTCUT');
             return false;
         }
         
-        // Cek kombinasi Ctrl
         for (const combo of blockedCombos) {
             if (e.ctrlKey === combo.ctrl && e.key === combo.key) {
                 e.preventDefault();
@@ -343,21 +364,14 @@ function enableSecurityBlocks() {
             }
         }
         
-        // Cek Ctrl+Shift+I (DevTools)
         if (e.ctrlKey && e.shiftKey && e.key === 'I') {
             e.preventDefault();
             handleViolation('DEVTOOLS_OPEN');
             return false;
         }
-        
-        // Cek F1 (Help)
-        if (e.key === 'F1') {
-            e.preventDefault();
-            return false;
-        }
     });
     
-    // Blokir long press di mobile
+    // Blokir long press - DENGAN COOLDOWN
     let touchTimer = null;
     document.addEventListener('touchstart', (e) => {
         if (!examActive || isRestarting) return;
@@ -366,7 +380,7 @@ function enableSecurityBlocks() {
         touchTimer = setTimeout(() => {
             handleViolation('LONG_PRESS');
             e.preventDefault();
-        }, 500);
+        }, 800); // 🔥 DIUBAH: 800ms (lebih panjang)
     });
     
     document.addEventListener('touchend', () => {
@@ -474,6 +488,7 @@ async function restartExamFromBeginning(reason) {
     // Reset variabel
     currentAnswers = {};
     currentQuestionIndex = 0;
+    violationCount = 0;  // 🔥 RESET COUNTER
     
     // Tampilkan pesan
     alert(`🔄 UJIAN DIULANG DARI AWAL!\n\nPelanggaran: ${formatViolationReason(reason)}\n\nSilakan kerjakan ujian dengan tertib.`);
@@ -484,10 +499,8 @@ async function restartExamFromBeginning(reason) {
             const subjectName = currentExam?.mataPelajaran || 'Ujian';
             const examId = currentExam?.id;
             
-            // Reset state
             isRestarting = false;
             
-            // Mulai ulang ujian
             await startExam(examId, subjectName);
         } catch (error) {
             console.error('Error restarting:', error);
