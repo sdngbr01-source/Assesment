@@ -259,7 +259,6 @@ function startProctoring() {
     }, SAFE_EXAM_CONFIG.checkInterval);
 }
 
-// Handle violation dengan cooldown
 async function handleViolation(reason) {
     if (!examActive || isRestarting) return;
     
@@ -284,14 +283,48 @@ async function handleViolation(reason) {
     
     const warningMessage = `⚠️ PELANGGARAN DETEKSI! ⚠️\n\n${formatViolationReason(reason)}\n\nPERINGATAN: ${violationCount}/${SAFE_EXAM_CONFIG.maxViolations}`;
     
-    // 🔥 Jika sudah mencapai maxViolations (2 kali), langsung restart
+    // 🔥 Jika sudah mencapai maxViolations (2 kali), LANGSUNG BLOKIR
     if (violationCount >= SAFE_EXAM_CONFIG.maxViolations) {
-        alert(`${warningMessage}\n\n❌ UJIAN DIULANG! Anda telah melanggar aturan ${violationCount} kali.\n\nUjian akan dimulai dari awal.`);
+        alert(`${warningMessage}\n\n❌ UJIAN DIHENTIKAN! Anda telah melanggar aturan ${violationCount} kali.\n\nAkun Anda akan diblokir. Hubungi guru untuk membuka blokir.`);
+        
         await saveViolationLog(reason, true);
-        violationCount = 0;
-        await restartExamFromBeginning(reason);
+        
+        // 🔥 BLOKIR SISWA (simpan ke database)
+        await blockStudent(reason);
+        
+        // Hentikan ujian
+        examActive = false;
+        isRestarting = true;
+        
+        if (proctorInterval) clearInterval(proctorInterval);
+        if (timerInterval) clearInterval(timerInterval);
+        
+        // Hapus event listeners
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+        window.removeEventListener('popstate', handlePopState);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        window.removeEventListener('resize', handleResize);
+        window.removeEventListener('blur', handleAppSwitch);
+        window.removeEventListener('pagehide', handleAppSwitch);
+        document.removeEventListener('pause', handleAppSwitch);
+        
+        exitFullscreen();
+        
+        const badge = document.getElementById('securityBadge');
+        if (badge) badge.remove();
+        const watermark = document.getElementById('examWatermark');
+        if (watermark) watermark.remove();
+        
+        // Tampilkan pesan blokir
+        showBlockedMessageAfterViolation(formatViolationReason(reason));
+        
+        // Kembali ke menu setelah 3 detik
+        setTimeout(() => {
+            backToMenu();
+        }, 3000);
+        
     } else {
-        alert(`${warningMessage}\n\n⚠️ PERINGATAN! 1 kali lagi maka ujian akan diulang dari awal!`);
+        alert(`${warningMessage}\n\n⚠️ PERINGATAN! 1 kali lagi maka akun Anda akan DIBLOKIR!`);
         await saveViolationLog(reason, false);
         
         setTimeout(() => {
@@ -300,6 +333,70 @@ async function handleViolation(reason) {
             }
         }, 3000);
     }
+}
+
+// 🔥 FUNGSI BLOKIR SISWA (simpan ke database)
+async function blockStudent(reason) {
+    if (!currentExam || !currentUser) return;
+    
+    try {
+        const blockRef = firebase.firestore().collection('student_blocks');
+        const docId = `${currentUser.id}_${currentExam.id}`;
+        
+        await blockRef.doc(docId).set({
+            siswaId: currentUser.id,
+            siswaNama: currentUser.nama || '',
+            nis: currentUser.nis || '',
+            kelas: currentUser.kelas || '',
+            examId: currentExam.id,
+            mataPelajaran: currentExam.mataPelajaran || '',
+            reason: reason,
+            status: 'blocked',
+            reseted: false,
+            waktu: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        console.log('Siswa diblokir:', currentUser.nama, currentExam.mataPelajaran);
+        
+    } catch (error) {
+        console.error('Error blocking student:', error);
+    }
+}
+
+// Tampilkan pesan blokir setelah pelanggaran
+function showBlockedMessageAfterViolation(reason) {
+    const oldModal = document.getElementById('blockedModal');
+    if (oldModal) oldModal.remove();
+    
+    const modal = document.createElement('div');
+    modal.id = 'blockedModal';
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.9);
+        z-index: 20000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    `;
+    
+    modal.innerHTML = `
+        <div style="background: white; padding: 30px; border-radius: 15px; text-align: center; max-width: 90%; margin: 20px; box-shadow: 0 5px 30px rgba(0,0,0,0.3);">
+            <div style="font-size: 60px; margin-bottom: 15px;">🔒</div>
+            <h2 style="color: #ff4757; margin-bottom: 10px;">AKUN DIBLOKIR</h2>
+            <p style="margin-bottom: 15px; color: #333;">Anda telah melakukan pelanggaran saat ujian <strong>${escapeHtml(currentExam?.mataPelajaran || '')}</strong>.</p>
+            <p style="margin-bottom: 15px; padding: 10px; background: #fff3cd; border-radius: 8px; color: #856404;">
+                <strong>Pelanggaran:</strong> ${escapeHtml(reason)}
+            </p>
+            <p style="margin-bottom: 20px; color: #666;">Akun Anda diblokir. Silakan hubungi guru untuk membuka blokir.</p>
+            <button onclick="closeBlockedModal()" style="padding: 12px 25px; background: #ff4757; color: white; border: none; border-radius: 8px; font-size: 16px; cursor: pointer;">Tutup</button>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
 }
 
 // Format pesan pelanggaran
