@@ -466,24 +466,47 @@
             </div>
             
             <!-- Tab Koreksi Essay -->
-            <div id="tab-koreksi" class="tab-content">
-                <h2>Koreksi Jawaban Essay</h2>
-                <div class="filter-bar">
-                    <!-- Update untuk filter kelas di tab koreksi -->
-			<select id="filterKelasKoreksi" class="filter-select">
-    			<option value="">Pilih Kelas</option>
-    			<!-- Akan diisi dinamis oleh JavaScript -->
-			</select>
-                    <select id="filterSiswaKoreksi" class="filter-select">
-                        <option value="">Pilih Siswa</option>
-                    </select>
-                    <button class="btn btn-primary" onclick="loadJawabanKoreksi()">Tampilkan</button>
-                </div>
-                
-                <div id="jawabanList" class="jawaban-list">
-                    <!-- Akan diisi JavaScript -->
-                </div>
-            </div>
+<div id="tab-koreksi" class="tab-content">
+    <h2>Koreksi Jawaban Essay</h2>
+    <div class="filter-bar" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;">
+        <div class="filter-group" style="min-width: 150px;">
+            <label>📚 Pilih Kelas</label>
+            <select id="filterKelasKoreksi" class="filter-select">
+                <option value="">Pilih Kelas</option>
+                <!-- Akan diisi dinamis oleh JavaScript -->
+            </select>
+        </div>
+        <div class="filter-group" style="min-width: 150px;">
+            <label>📖 Pilih Mata Pelajaran</label>
+            <select id="filterMapelKoreksi" class="filter-select">
+                <option value="">Pilih Mata Pelajaran</option>
+                <option value="Pendidikan Pancasila">Pendidikan Pancasila</option>
+                <option value="Pendidikan Agama Islam">Pendidikan Agama Islam</option>
+                <option value="Matematika">Matematika</option>
+                <option value="Bahasa Indonesia">Bahasa Indonesia</option>
+                <option value="IPAS">IPAS</option>
+                <option value="IPS">IPS</option>
+                <option value="PPKn">PPKn</option>
+                <option value="PJOK">PJOK</option>
+                <option value="SBdP">SBdP</option>
+                <option value="Bahasa inggris">Bahasa Inggris</option>
+                <option value="Bahasa Jawa">Bahasa Jawa</option>
+                <option value="Baca Tulis Alquran">Baca Tulis Alquran</option>
+            </select>
+        </div>
+        <div class="filter-group" style="min-width: 150px;">
+            <label>👨‍🎓 Pilih Siswa</label>
+            <select id="filterSiswaKoreksi" class="filter-select">
+                <option value="">Pilih Siswa</option>
+            </select>
+        </div>
+        <button class="btn btn-primary" onclick="loadJawabanKoreksi()">🔍 Tampilkan</button>
+    </div>
+    
+    <div id="jawabanList" class="jawaban-list">
+        <!-- Akan diisi JavaScript -->
+    </div>
+</div>
 <!-- Tab Status Login Siswa -->
 <div id="tab-statuslogin" class="tab-content">
     <h2>🔐 Manajemen Status Login Siswa</h2>
