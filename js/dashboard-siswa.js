@@ -391,7 +391,7 @@ function showBlockedMessageAfterViolation(reason) {
             <p style="margin-bottom: 15px; padding: 10px; background: #fff3cd; border-radius: 8px; color: #856404;">
                 <strong>Pelanggaran:</strong> ${escapeHtml(reason)}
             </p>
-            <p style="margin-bottom: 20px; color: #666;">Akun Anda diblokir. Silakan hubungi guru untuk membuka blokir.</p>
+            <p style="margin-bottom: 20px; color: #666;">Akun Anda diblokir. Silakan hubungi admin.</p>
             <button onclick="closeBlockedModal()" style="padding: 12px 25px; background: #ff4757; color: white; border: none; border-radius: 8px; font-size: 16px; cursor: pointer;">Tutup</button>
         </div>
     `;
