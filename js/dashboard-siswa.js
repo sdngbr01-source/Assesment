@@ -1,4 +1,4 @@
-// dashboard-siswa.js - VERSI DIPERBAIKI
+// dashboard-siswa.js - SAFE EXAM MODE (Proctoring Ringan)
 
 // Ambil data user dari sessionStorage
 const currentUser = JSON.parse(sessionStorage.getItem('currentUser'));
@@ -7,6 +7,515 @@ let currentQuestions = [];
 let currentAnswers = {};
 let currentQuestionIndex = 0;
 let timerInterval = null;
+
+// ========== SAFE EXAM MODE - PROCTORING SYSTEM ==========
+let examActive = false;
+let examStartTime = null;
+let violationCount = 0;
+let isRestarting = false;
+let proctorInterval = null;
+
+// Konfigurasi Safe Exam
+const SAFE_EXAM_CONFIG = {
+    maxViolations: 3,           // Maksimal pelanggaran sebelum submit paksa
+    checkInterval: 500,         // Interval pengecekan (ms)
+    allowedWindowSize: 0.8,     // Minimal ukuran window 80% dari layar
+    preventCopyPaste: true,     // Cegah copy-paste
+    preventScreenshot: true,    // Cegah screenshot
+    preventDevTools: true,      // Cegah DevTools
+    requireFullscreen: true,    // Wajib fullscreen
+    logViolations: true         // Catat pelanggaran
+};
+
+// Inisialisasi Safe Exam
+function initSafeExam() {
+    examActive = true;
+    examStartTime = Date.now();
+    violationCount = 0;
+    isRestarting = false;
+    
+    // Tampilkan indikator keamanan
+    showSecurityBadge();
+    showWatermark();
+    
+    // Minta fullscreen
+    if (SAFE_EXAM_CONFIG.requireFullscreen) {
+        requestFullscreen();
+    }
+    
+    // Mulai proctoring
+    startProctoring();
+    
+    // Blokir akses mencurigakan
+    enableSecurityBlocks();
+    
+    // Cegah refresh dengan peringatan
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    // Cegah tombol back
+    history.pushState(null, null, location.href);
+    window.addEventListener('popstate', handlePopState);
+    
+    // Deteksi perubahan visibility (pindah tab/aplikasi)
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Deteksi resize (split screen)
+    window.addEventListener('resize', handleResize);
+    
+    // Deteksi fullscreen change
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+}
+
+// Tampilkan badge keamanan
+function showSecurityBadge() {
+    const existingBadge = document.getElementById('securityBadge');
+    if (existingBadge) existingBadge.remove();
+    
+    const badge = document.createElement('div');
+    badge.id = 'securityBadge';
+    badge.className = 'security-badge';
+    badge.innerHTML = '🔒 SAFE EXAM MODE ACTIVE';
+    document.body.appendChild(badge);
+}
+
+// Tampilkan watermark
+function showWatermark() {
+    const existingWatermark = document.getElementById('examWatermark');
+    if (existingWatermark) existingWatermark.remove();
+    
+    const watermark = document.createElement('div');
+    watermark.id = 'examWatermark';
+    watermark.className = 'exam-watermark';
+    watermark.innerHTML = `${currentUser?.nama || 'Siswa'} | ${new Date().toLocaleDateString()}`;
+    document.body.appendChild(watermark);
+}
+
+// Update badge status
+function updateBadgeStatus(isWarning) {
+    const badge = document.getElementById('securityBadge');
+    if (badge) {
+        if (isWarning) {
+            badge.classList.add('warning');
+            badge.innerHTML = `⚠️ PELANGGARAN ${violationCount}/${SAFE_EXAM_CONFIG.maxViolations} ⚠️`;
+        } else {
+            badge.classList.remove('warning');
+            badge.innerHTML = `🔒 SAFE EXAM MODE | ${violationCount}/${SAFE_EXAM_CONFIG.maxViolations}`;
+        }
+    }
+}
+
+// Mulai proctoring (pengecekan berkala)
+function startProctoring() {
+    if (proctorInterval) clearInterval(proctorInterval);
+    
+    proctorInterval = setInterval(() => {
+        if (!examActive || isRestarting) return;
+        
+        const checks = [];
+        
+        // 1. Cek fullscreen
+        if (SAFE_EXAM_CONFIG.requireFullscreen && !isFullscreen()) {
+            checks.push('FULLSCREEN_OFF');
+        }
+        
+        // 2. Cek ukuran window (split screen)
+        const windowWidth = window.innerWidth;
+        const screenWidth = screen.width;
+        const ratio = windowWidth / screenWidth;
+        if (ratio < SAFE_EXAM_CONFIG.allowedWindowSize) {
+            checks.push('SPLIT_SCREEN');
+        }
+        
+        // 3. Cek apakah window terlalu kecil
+        if (window.innerWidth < 400 || window.innerHeight < 400) {
+            checks.push('WINDOW_TOO_SMALL');
+        }
+        
+        // 4. Cek devtools (jika terbuka)
+        if (SAFE_EXAM_CONFIG.preventDevTools && isDevToolsOpen()) {
+            checks.push('DEVTOOLS_OPEN');
+        }
+        
+        // Jika ada pelanggaran
+        if (checks.length > 0) {
+            handleViolation(checks.join(', '));
+        }
+        
+    }, SAFE_EXAM_CONFIG.checkInterval);
+}
+
+// Deteksi DevTools terbuka
+function isDevToolsOpen() {
+    // Method 1: Cek lebar vs tinggi
+    const threshold = 160;
+    const widthDiff = window.outerWidth - window.innerWidth;
+    const heightDiff = window.outerHeight - window.innerHeight;
+    
+    if (widthDiff > threshold || heightDiff > threshold) {
+        return true;
+    }
+    
+    // Method 2: Cek via console (tidak bisa dideteksi langsung, tapi ini fallback)
+    try {
+        const element = new Image();
+        Object.defineProperty(element, 'id', {
+            get: function() {
+                return true;
+            }
+        });
+        console.log(element);
+        return false;
+    } catch(e) {
+        return true;
+    }
+}
+
+// Handle visibility change (pindah tab)
+function handleVisibilityChange() {
+    if (!examActive || isRestarting) return;
+    
+    if (document.hidden) {
+        handleViolation('TAB_SWITCH');
+    }
+}
+
+// Handle resize (split screen)
+let resizeTimeout;
+function handleResize() {
+    if (!examActive || isRestarting) return;
+    
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(() => {
+        const ratio = window.innerWidth / screen.width;
+        if (ratio < SAFE_EXAM_CONFIG.allowedWindowSize) {
+            handleViolation('SPLIT_SCREEN');
+        }
+    }, 200);
+}
+
+// Handle fullscreen change
+function handleFullscreenChange() {
+    if (!examActive || isRestarting) return;
+    
+    if (SAFE_EXAM_CONFIG.requireFullscreen && !isFullscreen()) {
+        handleViolation('FULLSCREEN_EXIT');
+    }
+}
+
+// Handle before unload (refresh/tutup)
+function handleBeforeUnload(e) {
+    if (examActive && !isRestarting) {
+        e.preventDefault();
+        e.returnValue = '⚠️ PERINGATAN! Anda sedang dalam ujian mode SAFE EXAM.\n\nJika me-refresh atau menutup halaman, ujian akan diulang dari awal.\n\nApakah Anda yakin?';
+        return e.returnValue;
+    }
+}
+
+// Handle pop state (tombol back)
+function handlePopState(e) {
+    if (examActive && !isRestarting) {
+        handleViolation('BACK_BUTTON');
+        history.pushState(null, null, location.href);
+        e.preventDefault();
+        return false;
+    }
+}
+
+// Handle pelanggaran
+async function handleViolation(reason) {
+    if (!examActive || isRestarting) return;
+    
+    violationCount++;
+    
+    // Update badge
+    updateBadgeStatus(true);
+    
+    // Tampilkan peringatan
+    const warningMessage = `⚠️ PELANGGARAN DETEKSI! ⚠️\n\nPelanggaran: ${formatViolationReason(reason)}\n\nPeringatan: ${violationCount}/${SAFE_EXAM_CONFIG.maxViolations}`;
+    
+    if (violationCount >= SAFE_EXAM_CONFIG.maxViolations) {
+        alert(`${warningMessage}\n\n❌ UJIAN DIHENTIKAN! Anda telah melanggar aturan sebanyak ${violationCount} kali.\n\nUjian akan diulang dari awal.`);
+        await saveViolationLog(reason, true);
+        await restartExamFromBeginning(reason);
+    } else {
+        alert(`${warningMessage}\n\n⚠️ HATI-HATI! Jika mencapai ${SAFE_EXAM_CONFIG.maxViolations} pelanggaran, ujian akan diulang dari awal!`);
+        await saveViolationLog(reason, false);
+        
+        // Kembalikan ke mode fullscreen jika keluar
+        if (SAFE_EXAM_CONFIG.requireFullscreen && !isFullscreen()) {
+            setTimeout(() => requestFullscreen(), 1000);
+        }
+        
+        // Update badge kembali ke normal setelah 3 detik
+        setTimeout(() => updateBadgeStatus(false), 3000);
+    }
+}
+
+// Format pesan pelanggaran
+function formatViolationReason(reason) {
+    const reasons = {
+        'FULLSCREEN_OFF': 'Keluar dari mode layar penuh',
+        'FULLSCREEN_EXIT': 'Keluar dari layar penuh',
+        'SPLIT_SCREEN': 'Mode split screen / resize',
+        'WINDOW_TOO_SMALL': 'Window terlalu kecil',
+        'TAB_SWITCH': 'Berpindah ke tab lain',
+        'DEVTOOLS_OPEN': 'Membuka Developer Tools',
+        'BACK_BUTTON': 'Menekan tombol Back',
+        'COPY_ATTEMPT': 'Mencoba copy',
+        'PASTE_ATTEMPT': 'Mencoba paste',
+        'RIGHT_CLICK': 'Klik kanan',
+        'LONG_PRESS': 'Tekan lama (long press)',
+        'SHORTCUT': 'Shortcut keyboard terlarang'
+    };
+    return reasons[reason] || reason;
+}
+
+// Aktifkan security blocks
+function enableSecurityBlocks() {
+    // Blokir klik kanan
+    document.addEventListener('contextmenu', (e) => {
+        if (examActive && !isRestarting) {
+            e.preventDefault();
+            handleViolation('RIGHT_CLICK');
+            return false;
+        }
+    });
+    
+    // Blokir copy-paste
+    if (SAFE_EXAM_CONFIG.preventCopyPaste) {
+        document.addEventListener('copy', (e) => {
+            if (examActive && !isRestarting) {
+                e.preventDefault();
+                handleViolation('COPY_ATTEMPT');
+                return false;
+            }
+        });
+        
+        document.addEventListener('paste', (e) => {
+            if (examActive && !isRestarting) {
+                e.preventDefault();
+                handleViolation('PASTE_ATTEMPT');
+                return false;
+            }
+        });
+        
+        document.addEventListener('cut', (e) => {
+            if (examActive && !isRestarting) {
+                e.preventDefault();
+                return false;
+            }
+        });
+    }
+    
+    // Blokir shortcut keyboard
+    document.addEventListener('keydown', (e) => {
+        if (!examActive || isRestarting) return;
+        
+        const blockedKeys = ['F12', 'F5', 'F11', 'PrintScreen', 'Insert', 'Home', 'End'];
+        const blockedCombos = [
+            { ctrl: true, key: 'r' }, { ctrl: true, key: 'R' },
+            { ctrl: true, key: 'u' }, { ctrl: true, key: 'U' },
+            { ctrl: true, key: 's' }, { ctrl: true, key: 'S' },
+            { ctrl: true, key: 'p' }, { ctrl: true, key: 'P' },
+            { ctrl: true, key: 'c' }, { ctrl: true, key: 'C' },
+            { ctrl: true, key: 'v' }, { ctrl: true, key: 'V' },
+            { ctrl: true, key: 'x' }, { ctrl: true, key: 'X' },
+            { ctrl: true, key: 'a' }, { ctrl: true, key: 'A' },
+            { ctrl: true, key: 't' }, { ctrl: true, key: 'T' },
+            { ctrl: true, key: 'w' }, { ctrl: true, key: 'W' },
+            { ctrl: true, key: 'n' }, { ctrl: true, key: 'N' }
+        ];
+        
+        // Cek tombol individual
+        if (blockedKeys.includes(e.key)) {
+            e.preventDefault();
+            handleViolation('SHORTCUT');
+            return false;
+        }
+        
+        // Cek kombinasi Ctrl
+        for (const combo of blockedCombos) {
+            if (e.ctrlKey === combo.ctrl && e.key === combo.key) {
+                e.preventDefault();
+                handleViolation('SHORTCUT');
+                return false;
+            }
+        }
+        
+        // Cek Ctrl+Shift+I (DevTools)
+        if (e.ctrlKey && e.shiftKey && e.key === 'I') {
+            e.preventDefault();
+            handleViolation('DEVTOOLS_OPEN');
+            return false;
+        }
+        
+        // Cek F1 (Help)
+        if (e.key === 'F1') {
+            e.preventDefault();
+            return false;
+        }
+    });
+    
+    // Blokir long press di mobile
+    let touchTimer = null;
+    document.addEventListener('touchstart', (e) => {
+        if (!examActive || isRestarting) return;
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+        
+        touchTimer = setTimeout(() => {
+            handleViolation('LONG_PRESS');
+            e.preventDefault();
+        }, 500);
+    });
+    
+    document.addEventListener('touchend', () => {
+        if (touchTimer) {
+            clearTimeout(touchTimer);
+            touchTimer = null;
+        }
+    });
+}
+
+// Request fullscreen
+function requestFullscreen() {
+    const elem = document.documentElement;
+    try {
+        if (elem.requestFullscreen) {
+            elem.requestFullscreen();
+        } else if (elem.webkitRequestFullscreen) {
+            elem.webkitRequestFullscreen();
+        } else if (elem.msRequestFullscreen) {
+            elem.msRequestFullscreen();
+        }
+    } catch(e) {
+        console.log('Fullscreen not supported');
+    }
+}
+
+// Cek fullscreen
+function isFullscreen() {
+    return !!(document.fullscreenElement || 
+              document.webkitFullscreenElement || 
+              document.msFullscreenElement);
+}
+
+// Exit fullscreen
+function exitFullscreen() {
+    try {
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+        } else if (document.msExitFullscreen) {
+            document.msExitFullscreen();
+        }
+    } catch(e) {}
+}
+
+// Simpan log pelanggaran
+async function saveViolationLog(reason, isMaxViolation) {
+    if (!currentExam || !currentUser) return;
+    
+    try {
+        const violationLogRef = firebase.firestore().collection('safe_exam_logs');
+        await violationLogRef.add({
+            examId: currentExam.id,
+            siswaId: currentUser.id,
+            siswaNama: currentUser.nama || '',
+            nis: currentUser.nis || '',
+            kelas: currentUser.kelas || '',
+            mataPelajaran: currentExam.mataPelajaran || '',
+            alasan: reason,
+            violationKe: violationCount,
+            isMaxViolation: isMaxViolation,
+            durasiUjian: Math.floor((Date.now() - examStartTime) / 1000),
+            waktu: firebase.firestore.FieldValue.serverTimestamp(),
+            userAgent: navigator.userAgent,
+            screenSize: `${window.innerWidth}x${window.innerHeight}`,
+            fullscreen: isFullscreen()
+        });
+        console.log('Safe exam log saved:', reason);
+    } catch (error) {
+        console.error('Error saving log:', error);
+    }
+}
+
+// Restart ujian dari awal
+async function restartExamFromBeginning(reason) {
+    if (isRestarting) return;
+    
+    isRestarting = true;
+    examActive = false;
+    
+    // Hentikan proctoring
+    if (proctorInterval) clearInterval(proctorInterval);
+    
+    // Hapus event listeners
+    window.removeEventListener('beforeunload', handleBeforeUnload);
+    window.removeEventListener('popstate', handlePopState);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('resize', handleResize);
+    document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+    
+    // Hentikan timer
+    if (timerInterval) clearInterval(timerInterval);
+    
+    // Keluar dari fullscreen
+    exitFullscreen();
+    
+    // Hapus badge dan watermark
+    const badge = document.getElementById('securityBadge');
+    if (badge) badge.remove();
+    const watermark = document.getElementById('examWatermark');
+    if (watermark) watermark.remove();
+    
+    // Reset variabel
+    currentAnswers = {};
+    currentQuestionIndex = 0;
+    
+    // Tampilkan pesan
+    alert(`🔄 UJIAN DIULANG DARI AWAL!\n\nPelanggaran: ${formatViolationReason(reason)}\n\nSilakan kerjakan ujian dengan tertib.`);
+    
+    // Reload ulang ujian
+    setTimeout(async () => {
+        try {
+            const subjectName = currentExam?.mataPelajaran || 'Ujian';
+            const examId = currentExam?.id;
+            
+            // Reset state
+            isRestarting = false;
+            
+            // Mulai ulang ujian
+            await startExam(examId, subjectName);
+        } catch (error) {
+            console.error('Error restarting:', error);
+            backToMenu();
+        }
+    }, 1500);
+}
+
+// Stop safe exam mode
+function stopSafeExam() {
+    examActive = false;
+    if (proctorInterval) clearInterval(proctorInterval);
+    
+    window.removeEventListener('beforeunload', handleBeforeUnload);
+    window.removeEventListener('popstate', handlePopState);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('resize', handleResize);
+    document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    
+    const badge = document.getElementById('securityBadge');
+    if (badge) badge.remove();
+    const watermark = document.getElementById('examWatermark');
+    if (watermark) watermark.remove();
+    
+    exitFullscreen();
+}
+
+// ========== FUNGSI ASLI (TIDAK DIRUBAH) ==========
 
 // Cek login
 if (!currentUser || currentUser.role !== 'siswa') {
@@ -24,7 +533,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadSubjects();
 });
 
-// Load mata pelajaran yang tersedia
+// Load mata pelajaran
 async function loadSubjects() {
     const subjectList = document.getElementById('subjectList');
     if (!subjectList) return;
@@ -53,6 +562,7 @@ async function loadSubjects() {
                     <h3>${exam.mataPelajaran || 'Mata Pelajaran'}</h3>
                     <p>${totalSoal} Soal</p>
                     <p>Durasi: ${exam.durasi || 60} menit</p>
+                    <p style="color: #28a745; font-size: 12px;">🔒 Safe Exam Mode</p>
                 </div>
             `;
         });
@@ -70,11 +580,15 @@ async function startExam(examId, subjectName) {
         const existingAnswer = await answersRef
             .where('examId', '==', examId)
             .where('siswaId', '==', currentUser.id)
-            .limit(1)
             .get();
         
-        if (!existingAnswer.empty) {
-            alert('Anda sudah mengerjakan ujian ini!');
+        const hasCompleted = existingAnswer.docs.some(doc => {
+            const data = doc.data();
+            return data.statusSubmit === 'normal' || (data.statusKoreksi === 'selesai' && data.nilaiSementara > 0);
+        });
+        
+        if (hasCompleted) {
+            alert('Anda sudah menyelesaikan ujian ini! Tidak bisa mengulang.');
             return;
         }
         
@@ -87,7 +601,7 @@ async function startExam(examId, subjectName) {
         
         currentExam = { id: examId, ...examDoc.data() };
         
-        // Ambil soal berdasarkan kelas dan mata pelajaran
+        // Ambil soal
         const questionsSnapshot = await questionsRef
             .where('kelas', '==', currentExam.kelas)
             .where('mataPelajaran', '==', currentExam.mataPelajaran)
@@ -105,7 +619,7 @@ async function startExam(examId, subjectName) {
             return;
         }
         
-        // Filter soal berdasarkan tipe yang di-setting
+        // Filter soal
         const examJumlahSoal = currentExam.jumlahSoal || {};
         let filteredQuestions = [];
         
@@ -130,7 +644,7 @@ async function startExam(examId, subjectName) {
         
         currentQuestions = filteredQuestions;
         
-        // Set nilai per soal dari exam setting
+        // Set nilai per soal
         const nilaiPerSoalSetting = currentExam.nilaiPerSoal || {
             pg: 5,
             isian: 5,
@@ -157,12 +671,19 @@ async function startExam(examId, subjectName) {
         showQuestion();
         updateQuestionGrid();
         
+        // 🔥 AKTIFKAN SAFE EXAM MODE
+        initSafeExam();
+        
+        // Tambahkan class untuk styling
+        document.body.classList.add('exam-mode');
+        
     } catch (error) {
         console.error('Error starting exam:', error);
         alert('Gagal memulai ujian: ' + error.message);
     }
 }
 
+// Timer
 function startTimer(duration) {
     const timerDisplay = document.getElementById('timer');
     if (!timerDisplay) return;
@@ -187,7 +708,7 @@ function startTimer(duration) {
     }, 1000);
 }
 
-// 🔥 PERBAIKAN: Fungsi showQuestion dengan gambar di pilihan jawaban
+// Show question
 function showQuestion() {
     const question = currentQuestions[currentQuestionIndex];
     const container = document.getElementById('questionContainer');
@@ -199,7 +720,6 @@ function showQuestion() {
         <div class="question-point">Nilai: ${question.nilai || 0} poin</div>
     `;
     
-    // Gambar soal
     if (question.gambar && question.gambar.trim() !== '') {
         questionHtml += `
             <div class="question-image-container">
@@ -213,10 +733,8 @@ function showQuestion() {
         `;
     }
     
-    // Teks soal
     questionHtml += `<div class="question-text">${question.soal || 'Soal tidak tersedia'}</div>`;
     
-    // Pilihan Jawaban
     if (question.tipe === 'pg') {
         questionHtml += '<div class="options">';
         const optionLetters = ['A', 'B', 'C', 'D'];
@@ -239,8 +757,8 @@ function showQuestion() {
                 questionHtml += `<img src="${gambarUrl}" onerror="this.style.display='none'">`;
             }
             questionHtml += `<span>${pilihanText}</span>`;
-            questionHtml += `</div>`; // tutup option-text
-            questionHtml += `</div>`; // tutup option
+            questionHtml += `</div>`;
+            questionHtml += `</div>`;
         }
         
         questionHtml += '</div>';
@@ -264,7 +782,6 @@ function showQuestion() {
         `;
     }
     
-    // Tombol navigasi
     questionHtml += `<div class="navigation-buttons">`;
     if (currentQuestionIndex > 0) {
         questionHtml += `<button class="nav-btn prev" onclick="prevQuestion()">← Sebelumnya</button>`;
@@ -282,7 +799,6 @@ function showQuestion() {
     container.innerHTML = questionHtml;
 }
 
-// 🔥 FUNGSI BARU: Escape HTML untuk keamanan
 function escapeHtml(text) {
     if (!text) return '';
     const div = document.createElement('div');
@@ -290,7 +806,6 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// 🔥 FUNGSI BARU: Modal gambar
 function showImageModal(imageUrl) {
     const modal = document.getElementById('imageModal');
     const modalImg = document.getElementById('modalImage');
@@ -365,10 +880,14 @@ function updateQuestionGrid() {
     grid.innerHTML = gridHtml;
 }
 
+// Submit exam
 async function submitExam() {
     if (!confirm('Apakah Anda yakin ingin mengumpulkan jawaban?')) {
         return;
     }
+    
+    // Hentikan safe exam mode
+    stopSafeExam();
     
     if (timerInterval) clearInterval(timerInterval);
     
@@ -486,6 +1005,8 @@ async function submitExam() {
             
             nilaiSementara: nilaiSementara,
             statusKoreksi: jmlUraian > 0 ? 'pending' : 'selesai',
+            statusSubmit: 'normal',
+            safeExamActive: true,
             waktu: firebase.firestore.FieldValue.serverTimestamp()
         });
         
@@ -495,6 +1016,9 @@ async function submitExam() {
             alert('Jawaban berhasil dikumpulkan!\nNilai Akhir: ' + nilaiSementara);
         }
         showResults(nilaiPG, nilaiIsian, totalPG, totalIsian);
+        
+        // Hapus class exam mode
+        document.body.classList.remove('exam-mode');
         
     } catch (error) {
         console.error('Error submitting exam:', error);
@@ -520,28 +1044,53 @@ function showResults(nilaiPG, nilaiIsian, totalPG, totalIsian) {
     if (resultTotal) resultTotal.textContent = (nilaiPG + nilaiIsian) + ' / ' + (totalPG + totalIsian);
 }
 
-// 🔥 PERBAIKAN: Fungsi backToMenu
+// backToMenu
 function backToMenu() {
+    stopSafeExam();
+    
     const resultPage = document.getElementById('resultPage');
     const mainMenu = document.getElementById('mainMenu');
     
     if (resultPage) resultPage.style.display = 'none';
     if (mainMenu) mainMenu.style.display = 'block';
     
-    // Reset semua variabel
     currentExam = null;
     currentQuestions = [];
     currentAnswers = {};
     currentQuestionIndex = 0;
     if (timerInterval) clearInterval(timerInterval);
+    
+    document.body.classList.remove('exam-mode');
 }
 
-// 🔥 PERBAIKAN: Fungsi logout
 function logout() {
     if (confirm('Apakah Anda yakin ingin logout?')) {
-        // Hapus session storage
         sessionStorage.removeItem('currentUser');
-        // Redirect ke halaman login
         window.location.href = 'index.html';
     }
+}
+
+function getGambarUrl(gambarPilihan, optionLetter, gambarSoal) {
+    let url = gambarPilihan?.[optionLetter] || '';
+    
+    if (!url && gambarSoal) {
+        url = gambarSoal;
+    }
+    
+    if (url && url.includes('drive.google.com')) {
+        let id = null;
+        let match = url.match(/id=([^&]+)/);
+        if (match) id = match[1];
+        
+        if (!id) {
+            match = url.match(/\/d\/([^\/]+)/);
+            if (match) id = match[1];
+        }
+        
+        if (id) {
+            url = `https://drive.google.com/thumbnail?id=${id}&sz=w1000`;
+        }
+    }
+    
+    return url;
 }
