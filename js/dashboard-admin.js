@@ -620,44 +620,22 @@ function closeResetStatusModal() {
 
 // Confirm reset status
 async function confirmResetStatus() {
-    console.log("Confirm reset dipanggil", selectedResetData);
-    
-    if (!selectedResetData) {
-        console.log("Tidak ada data reset");
-        return;
-    }
+    if (!selectedResetData) return;
     
     const { siswaId, siswaNama, examId, mataPelajaran } = selectedResetData;
     
     try {
         showToast(`🔄 Mereset blokir untuk ${siswaNama}...`, 'info');
         
-        // 1. Update student_blocks
+        // 1. Update student_blocks (set reseted = true)
         const blockRef = firebase.firestore().collection('student_blocks');
-        const blockDocId = `${siswaId}_${examId}`;
-        const blockDoc = await blockRef.doc(blockDocId).get();
+        const docId = `${siswaId}_${examId}`;
         
-        if (blockDoc.exists) {
-            await blockRef.doc(blockDocId).update({
-                reseted: true,
-                resetBy: currentUser?.nama || 'Admin',
-                resetTime: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            console.log("Block document updated");
-        } else {
-            // Jika tidak ada document, buat saja
-            await blockRef.doc(blockDocId).set({
-                siswaId: siswaId,
-                siswaNama: siswaNama,
-                examId: examId,
-                mataPelajaran: mataPelajaran,
-                status: 'blocked',
-                reseted: true,
-                resetBy: currentUser?.nama || 'Admin',
-                resetTime: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            console.log("Block document created");
-        }
+        await blockRef.doc(docId).update({
+            reseted: true,
+            resetBy: currentUser?.nama || 'Admin',
+            resetTime: firebase.firestore.FieldValue.serverTimestamp()
+        });
         
         // 2. Catat log reset
         await firebase.firestore().collection('reset_logs').add({
@@ -670,7 +648,7 @@ async function confirmResetStatus() {
             waktu: firebase.firestore.FieldValue.serverTimestamp()
         });
         
-        // 3. Hapus data pelanggaran (safe_exam_logs)
+        // 3. Hapus data pelanggaran (safe_exam_logs) untuk ujian ini
         const logsSnapshot = await firebase.firestore().collection('safe_exam_logs')
             .where('siswaId', '==', siswaId)
             .where('examId', '==', examId)
