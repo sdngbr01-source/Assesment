@@ -514,11 +514,12 @@ function renderStatusTable(data) {
             new Date(item.lastUpdate).toLocaleString('id-ID') : 
             '-';
         
+        // 🔥 PERBAIKAN: Tombol reset hanya aktif untuk status 'blocked'
         const isResetDisabled = item.status !== 'blocked';
         
         html += `
             <tr>
-                <td>${index + 1}</td>
+                <td style="text-align: center;">${index + 1}</td>
                 <td><strong>${escapeHtml(item.siswaNama)}</strong></td>
                 <td>${escapeHtml(item.nis)}</td>
                 <td>Kelas ${escapeHtml(item.kelas)}</td>
@@ -531,10 +532,11 @@ function renderStatusTable(data) {
                 <td style="text-align: center;">
                     ${item.status === 'login' ? `🎫 ${item.remainingChances} x` : '-'}
                 </td>
-                <td>${lastUpdateStr}</td>
-                <td>
+                <td style="font-size: 11px;">${lastUpdateStr}</td>
+                <td style="text-align: center;">
                     <button class="btn-reset" 
-                        onclick="openResetStatusModal('${item.siswaId}', '${escapeHtml(item.siswaNama)}', '${item.examId}', '${escapeHtml(item.mataPelajaran)}')"
+                        style="cursor: ${isResetDisabled ? 'not-allowed' : 'pointer'}; opacity: ${isResetDisabled ? '0.5' : '1'};"
+                        onclick="${isResetDisabled ? '' : `openResetStatusModal('${item.siswaId}', '${escapeHtml(item.siswaNama)}', '${item.examId}', '${escapeHtml(item.mataPelajaran)}')`}"
                         ${isResetDisabled ? 'disabled' : ''}>
                         🔓 Reset
                     </button>
@@ -545,7 +547,6 @@ function renderStatusTable(data) {
     
     tbody.innerHTML = html;
 }
-
 // Load kelas ke filter dropdown
 async function loadKelasToStatusFilter() {
     const kelasSelect = document.getElementById('statusFilterKelas');
