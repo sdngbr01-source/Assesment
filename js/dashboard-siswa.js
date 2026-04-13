@@ -39,6 +39,82 @@ const SAFE_EXAM_CONFIG = {
 let appSwitchDetected = false;
 let lastVisibilityTime = Date.now();
 
+// ========== FITUR BLOKIR SISWA ==========
+let isBlocked = false;
+let blockReason = '';
+let blockExamId = '';
+
+// Cek status blokir siswa untuk suatu ujian
+async function checkBlockStatus(examId) {
+    try {
+        const blockRef = firebase.firestore().collection('student_blocks');
+        const blockDoc = await blockRef.doc(`${currentUser.id}_${examId}`).get();
+        
+        if (blockDoc.exists) {
+            const data = blockDoc.data();
+            // Jika status blocked dan belum direset
+            if (data.status === 'blocked' && !data.reseted) {
+                isBlocked = true;
+                blockReason = data.reason || 'Terlalu banyak pelanggaran';
+                blockExamId = examId;
+                return true;
+            }
+        }
+        
+        isBlocked = false;
+        blockReason = '';
+        blockExamId = '';
+        return false;
+        
+    } catch (error) {
+        console.error('Error checking block status:', error);
+        return false;
+    }
+}
+
+// Tampilkan modal/pesan blokir
+function showBlockedMessage(mataPelajaran) {
+    // Hapus modal lama jika ada
+    const oldModal = document.getElementById('blockedModal');
+    if (oldModal) oldModal.remove();
+    
+    const modal = document.createElement('div');
+    modal.id = 'blockedModal';
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.9);
+        z-index: 20000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    `;
+    
+    modal.innerHTML = `
+        <div style="background: white; padding: 30px; border-radius: 15px; text-align: center; max-width: 90%; margin: 20px; box-shadow: 0 5px 30px rgba(0,0,0,0.3);">
+            <div style="font-size: 60px; margin-bottom: 15px;">🔒</div>
+            <h2 style="color: #ff4757; margin-bottom: 10px;">AKUN DIBLOKIR</h2>
+            <p style="margin-bottom: 15px; color: #333;">Anda tidak dapat mengikuti ujian <strong>${escapeHtml(mataPelajaran)}</strong>.</p>
+            <p style="margin-bottom: 15px; padding: 10px; background: #fff3cd; border-radius: 8px; color: #856404;">
+                <strong>Alasan:</strong> ${escapeHtml(blockReason)}
+            </p>
+            <p style="margin-bottom: 20px; color: #666;">Silakan hubungi guru untuk membuka blokir akun Anda.</p>
+            <button onclick="closeBlockedModal()" style="padding: 12px 25px; background: #ff4757; color: white; border: none; border-radius: 8px; font-size: 16px; cursor: pointer;">Tutup</button>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+}
+
+// Tutup modal blokir
+function closeBlockedModal() {
+    const modal = document.getElementById('blockedModal');
+    if (modal) modal.remove();
+}
+
 // Inisialisasi Safe Exam
 function initSafeExam() {
     examActive = true;
@@ -519,19 +595,34 @@ async function loadSubjects() {
             return;
         }
         
-        examsSnapshot.forEach(doc => {
+        // Loop untuk setiap ujian dan cek status blokir
+        for (const doc of examsSnapshot.docs) {
             const exam = doc.data();
             const totalSoal = (exam.jumlahSoal?.pg || 0) + (exam.jumlahSoal?.isian || 0) + (exam.jumlahSoal?.uraian || 0);
+            
+            // 🔥 CEK STATUS BLOKIR UNTUK UJIAN INI
+            const isBlockedForThisExam = await checkBlockStatus(doc.id);
+            
+            let cardStyle = '';
+            let onclickAttr = `onclick="startExam('${doc.id}', '${exam.mataPelajaran || 'Ujian'}')"`;
+            let badgeHtml = '<p style="color: #28a745; font-size: 12px;">🔒 Safe Exam Mode</p>';
+            
+            if (isBlockedForThisExam) {
+                cardStyle = 'style="opacity: 0.6; background: #f8f9fa; cursor: not-allowed;"';
+                onclickAttr = `onclick="showBlockedMessage('${exam.mataPelajaran || 'Ujian'}')"`;
+                badgeHtml = '<p style="color: #dc3545; font-size: 12px;">🔒 DIBLOKIR - Hubungi Guru</p>';
+            }
+            
             subjectList.innerHTML += `
-                <div class="card" onclick="startExam('${doc.id}', '${exam.mataPelajaran || 'Ujian'}')">
+                <div class="card" ${cardStyle} ${onclickAttr}>
                     <div class="card-icon">📚</div>
                     <h3>${exam.mataPelajaran || 'Mata Pelajaran'}</h3>
                     <p>${totalSoal} Soal</p>
                     <p>Durasi: ${exam.durasi || 60} menit</p>
-                    <p style="color: #28a745; font-size: 12px;">🔒 Safe Exam Mode</p>
+                    ${badgeHtml}
                 </div>
             `;
-        });
+        }
         
     } catch (error) {
         console.error('Error loading subjects:', error);
@@ -541,6 +632,11 @@ async function loadSubjects() {
 
 async function startExam(examId, subjectName) {
     try {
+	const isBlockedForThisExam = await checkBlockStatus(examId);
+        if (isBlockedForThisExam) {
+            showBlockedMessage(subjectName);
+            return;
+        }
         const existingAnswer = await answersRef
             .where('examId', '==', examId)
             .where('siswaId', '==', currentUser.id)
