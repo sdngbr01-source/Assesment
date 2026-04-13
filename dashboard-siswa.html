@@ -326,6 +326,60 @@
         font-size: 12px;
     }
 }
+
+         /* Safe Exam Mode Styles */
+    .safe-exam-active {
+        user-select: none !important;
+        -webkit-tap-highlight-color: transparent !important;
+    }
+    
+    .safe-exam-active input, 
+    .safe-exam-active textarea {
+        user-select: text !important;
+    }
+    
+    /* Floating security indicator */
+    .security-badge {
+        position: fixed;
+        bottom: 10px;
+        right: 10px;
+        background: rgba(0,0,0,0.7);
+        color: #0f0;
+        font-size: 10px;
+        padding: 5px 10px;
+        border-radius: 20px;
+        font-family: monospace;
+        z-index: 9999;
+        pointer-events: none;
+    }
+    
+    .security-badge.warning {
+        background: rgba(255,0,0,0.8);
+        animation: blink 1s infinite;
+    }
+    
+    @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+    
+    /* Disable text selection during exam */
+    .exam-mode {
+        user-select: none;
+        -webkit-user-select: none;
+    }
+    
+    /* Watermark */
+    .exam-watermark {
+        position: fixed;
+        bottom: 20px;
+        left: 20px;
+        opacity: 0.3;
+        font-size: 10px;
+        color: #666;
+        z-index: 9998;
+        pointer-events: none;
+    }
     </style>
 </head>
 <body>
