@@ -33,7 +33,6 @@ async function getExamData(examId) {
     }
     
     try {
-        // Gunakan examsRef yang sudah didefinisikan di firebase-config.js
         if (typeof examsRef === 'undefined') {
             console.error('examsRef tidak terdefinisi');
             return null;
@@ -60,7 +59,6 @@ async function getSoalData(questionId) {
     }
     
     try {
-        // Gunakan questionsRef (bukan soalRef) dari firebase-config.js
         if (typeof questionsRef === 'undefined') {
             console.error('questionsRef tidak terdefinisi');
             return null;
@@ -87,16 +85,12 @@ async function getKunciJawaban(questionId) {
     try {
         const soalData = await getSoalData(questionId);
         if (soalData) {
-            // Field kunci jawaban bisa 'kunci' (untuk PG/Isian) atau dari data
             let kunci = '';
             if (soalData.tipe === 'pg') {
-                // Untuk PG, kunci adalah huruf A/B/C/D
                 kunci = soalData.kunci || '';
             } else if (soalData.tipe === 'isian') {
-                // Untuk isian, kunci adalah jawaban yang diharapkan
                 kunci = soalData.kunci || '';
             } else if (soalData.tipe === 'uraian') {
-                // Untuk uraian/essay, bisa menggunakan kunci atau field khusus
                 kunci = soalData.kunci || soalData.kunciJawaban || '';
             } else {
                 kunci = soalData.kunci || soalData.kunciJawaban || '';
@@ -110,15 +104,16 @@ async function getKunciJawaban(questionId) {
     return '';
 }
 
-// Load siswa untuk filter koreksi
+// 🔥 UPDATE: Load siswa untuk filter koreksi (dengan filter kelas dan mapel)
 async function loadSiswaForKoreksi() {
     const kelas = document.getElementById('filterKelasKoreksi')?.value;
+    const mapel = document.getElementById('filterMapelKoreksi')?.value;
     const siswaSelect = document.getElementById('filterSiswaKoreksi');
     
     if (!siswaSelect) return;
     
-    if (!kelas) {
-        siswaSelect.innerHTML = '<option value="">Pilih Kelas Dulu</option>';
+    if (!kelas || !mapel) {
+        siswaSelect.innerHTML = '<option value="">Pilih Kelas dan Mapel Dulu</option>';
         return;
     }
     
@@ -131,24 +126,39 @@ async function loadSiswaForKoreksi() {
             return;
         }
         
-        const snapshot = await usersRef
+        // Ambil siswa yang memiliki jawaban pending berdasarkan kelas dan mapel
+        const answersSnapshot = await answersRef
             .where('kelas', '==', kelas)
-            .where('role', '==', 'siswa')
+            .where('mataPelajaran', '==', mapel)
+            .where('statusKoreksi', '==', 'pending')
             .get();
+        
+        const siswaMap = new Map();
+        answersSnapshot.forEach(doc => {
+            const data = doc.data();
+            if (!siswaMap.has(data.siswaId)) {
+                siswaMap.set(data.siswaId, {
+                    id: data.siswaId,
+                    nama: data.siswaNama || 'Tanpa Nama',
+                    nis: data.nis || '-'
+                });
+            }
+        });
         
         siswaSelect.innerHTML = '<option value="">Pilih Siswa</option>';
         
-        if (snapshot.empty) {
-            siswaSelect.innerHTML = '<option value="">Tidak ada siswa di kelas ini</option>';
+        if (siswaMap.size === 0) {
+            siswaSelect.innerHTML = '<option value="">Tidak ada siswa perlu koreksi</option>';
             return;
         }
         
-        snapshot.forEach(doc => {
-            const siswa = doc.data();
+        for (const [id, siswa] of siswaMap) {
             siswaSelect.innerHTML += `
-                <option value="${doc.id}">${escapeHtml(siswa.nama || 'Tanpa Nama')} (${escapeHtml(siswa.nis || '-')})</option>
+                <option value="${id}">${escapeHtml(siswa.nama)} (${escapeHtml(siswa.nis)})</option>
             `;
-        });
+        }
+        
+        console.log('✅ Load siswa berhasil:', siswaMap.size, 'siswa');
         
     } catch (error) {
         console.error('Error loading siswa:', error);
@@ -156,114 +166,131 @@ async function loadSiswaForKoreksi() {
     }
 }
 
-// Render jawaban isian dengan tabel
-function renderJawabanIsian(jawabanIsian, jawabanId) {
-    if (!jawabanIsian || Object.keys(jawabanIsian).length === 0) {
-        return '<p><em>Tidak ada jawaban isian</em></p>';
+// 🔥 UPDATE: Load jawaban untuk dikoreksi (dengan filter kelas, mapel, siswa)
+async function loadJawabanKoreksi() {
+    const kelas = document.getElementById('filterKelasKoreksi')?.value;
+    const mapel = document.getElementById('filterMapelKoreksi')?.value;
+    const siswaId = document.getElementById('filterSiswaKoreksi')?.value;
+    const jawabanList = document.getElementById('jawabanList');
+    
+    if (!jawabanList) return;
+    
+    if (!kelas || !mapel || !siswaId) {
+        jawabanList.innerHTML = '<p style="padding: 20px; text-align: center;">Pilih Kelas, Mapel, dan Siswa terlebih dahulu</p>';
+        return;
     }
     
-    let html = `
-        <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
-            <thead>
-                <tr style="background: #17a2b8; color: white;">
-                    <th style="padding: 10px; border: 1px solid #ddd; text-align: center; width: 5%;">No</th>
-                    <th style="padding: 10px; border: 1px solid #ddd; text-align: left; width: 40%;">Soal</th>
-                    <th style="padding: 10px; border: 1px solid #ddd; text-align: left; width: 20%;">Jawaban Siswa</th>
-                    <th style="padding: 10px; border: 1px solid #ddd; text-align: left; width: 20%;">Kunci Jawaban</th>
-                    <th style="padding: 10px; border: 1px solid #ddd; text-align: center; width: 8%;">Nilai Maks</th>
-                </tr>
-            </thead>
-            <tbody>
-    `;
+    jawabanList.innerHTML = '<p style="padding: 20px; text-align: center;">Loading jawaban...</p>';
     
-    let no = 1;
-    
-    const sortedIsian = Object.entries(jawabanIsian).sort((a, b) => {
-        return (a[1].nomor || 0) - (b[1].nomor || 0);
-    });
-    
-    for (const [questionId, data] of sortedIsian) {
-        const jawaban = data.jawaban || '';
-        const nilaiMaksimal = data.nilaiMaksimal || 5;
-        const soal = data.soal || 'Soal tidak tersedia';
-        const kunciJawaban = data.kunciJawaban || '';
+    try {
+        if (typeof answersRef === 'undefined') {
+            console.error('answersRef tidak terdefinisi');
+            jawabanList.innerHTML = '<p style="padding: 20px; text-align: center; color: red;">Error: answersRef tidak terdefinisi</p>';
+            return;
+        }
         
-        html += `
-            <tr>
-                <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">${no++}</td>
-                <td style="padding: 10px; border: 1px solid #ddd;">${escapeHtml(soal)}</td>
-                <td style="padding: 10px; border: 1px solid #ddd; background: #f0f8ff;">
-                    ${escapeHtml(jawaban) || '<em style="color: #999;">Tidak dijawab</em>'}
-                </td>
-                <td style="padding: 10px; border: 1px solid #ddd; background: #e8f5e9;">
-                    <strong>${escapeHtml(String(kunciJawaban)) || '-'}</strong>
-                </td>
-                <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">${nilaiMaksimal}</td>
-            </tr>
-        `;
-    }
-    
-    html += `
-            </tbody>
-        </table>
-    `;
-    
-    return html;
-}
-
-// Render jawaban essay dengan tabel
-function renderJawabanEssay(jawabanUraian, jawabanId) {
-    if (!jawabanUraian || Object.keys(jawabanUraian).length === 0) {
-        return '<p><em>Tidak ada jawaban essay</em></p>';
-    }
-    
-    let html = `
-        <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
-            <thead>
-                <tr style="background: #007bff; color: white;">
-                    <th style="padding: 10px; border: 1px solid #ddd; text-align: center; width: 5%;">No</th>
-                    <th style="padding: 10px; border: 1px solid #ddd; text-align: left; width: 40%;">Soal</th>
-                    <th style="padding: 10px; border: 1px solid #ddd; text-align: left; width: 20%;">Jawaban Siswa</th>
-                    <th style="padding: 10px; border: 1px solid #ddd; text-align: left; width: 20%;">Kunci Jawaban</th>
-                    <th style="padding: 10px; border: 1px solid #ddd; text-align: center; width: 8%;">Nilai Maks</th>
-                </tr>
-            </thead>
-            <tbody>
-    `;
-    
-    let no = 1;
-    
-    const sortedEssays = Object.entries(jawabanUraian).sort((a, b) => {
-        return (a[1].nomor || 0) - (b[1].nomor || 0);
-    });
-    
-    for (const [questionId, data] of sortedEssays) {
-        const jawaban = data.jawaban || '';
-        const nilaiMaksimal = data.nilaiMaksimal || 10;
-        const soal = data.soal || 'Soal tidak tersedia';
-        const kunciJawaban = data.kunciJawaban || '';
+        const snapshot = await answersRef
+            .where('kelas', '==', kelas)
+            .where('mataPelajaran', '==', mapel)
+            .where('siswaId', '==', siswaId)
+            .where('statusKoreksi', '==', 'pending')
+            .get();
         
-        html += `
-            <tr>
-                <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">${no++}</td>
-                <td style="padding: 10px; border: 1px solid #ddd;">${escapeHtml(soal)}</td>
-                <td style="padding: 10px; border: 1px solid #ddd; background: #f0f8ff;">
-                    ${escapeHtml(jawaban) || '<em style="color: #999;">Tidak dijawab</em>'}
-                </td>
-                <td style="padding: 10px; border: 1px solid #ddd; background: #e8f5e9;">
-                    <strong>${escapeHtml(String(kunciJawaban)) || '-'}</strong>
-                </td>
-                <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">${nilaiMaksimal}</td>
-            </tr>
-        `;
+        if (snapshot.empty) {
+            jawabanList.innerHTML = '<p style="padding: 20px; text-align: center;">Tidak ada jawaban yang perlu dikoreksi</p>';
+            return;
+        }
+        
+        let html = '';
+        let no = 1;
+        
+        for (const doc of snapshot.docs) {
+            const jawaban = doc.data();
+            const examId = jawaban.examId;
+            const jawabanIsian = jawaban.jawabanIsian || {};
+            const jawabanUraian = jawaban.jawabanUraian || {};
+            
+            if (Object.keys(jawabanIsian).length === 0 && Object.keys(jawabanUraian).length === 0) continue;
+            
+            const hasIsian = Object.keys(jawabanIsian).length > 0;
+            const hasEssay = Object.keys(jawabanUraian).length > 0;
+            
+            const examData = await getExamData(examId);
+            const nilaiMaksIsian = examData?.nilaiPerSoal?.isian || 5;
+            const nilaiMaksUraian = examData?.nilaiPerSoal?.uraian || 10;
+            
+            // Update nilai maksimal dan ambil kunci jawaban untuk isian
+            for (const [qId, data] of Object.entries(jawabanIsian)) {
+                data.nilaiMaksimal = nilaiMaksIsian;
+                const kunci = await getKunciJawaban(qId);
+                data.kunciJawaban = kunci;
+            }
+            
+            // Update nilai maksimal dan ambil kunci jawaban untuk essay
+            for (const [qId, data] of Object.entries(jawabanUraian)) {
+                data.nilaiMaksimal = nilaiMaksUraian;
+                const kunci = await getKunciJawaban(qId);
+                data.kunciJawaban = kunci;
+            }
+            
+            html += `
+                <div class="jawaban-card" data-jawaban-id="${doc.id}" style="margin-bottom: 20px; border: 1px solid #ddd; border-radius: 8px; padding: 15px; background: white;">
+                    <div class="jawaban-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 10px;">
+                        <h3 style="margin: 0;">${no++}. ${escapeHtml(jawaban.mataPelajaran || 'Mata Pelajaran')}</h3>
+                        <span class="badge" style="background: #ffc107; color: #000; padding: 5px 10px; border-radius: 20px;">Menunggu Koreksi</span>
+                    </div>
+                    <div class="jawaban-info" style="margin: 10px 0; color: #666;">
+                        <p><strong>Siswa:</strong> ${escapeHtml(jawaban.siswaNama || '-')}</p>
+                        <p><strong>NIS:</strong> ${escapeHtml(jawaban.nis || '-')}</p>
+                        <p><strong>Kelas:</strong> ${escapeHtml(jawaban.kelas || '-')}</p>
+                        <p><strong>Waktu:</strong> ${jawaban.waktu ? new Date(jawaban.waktu.toDate()).toLocaleString() : '-'}</p>
+                        <p><strong>Nilai PG:</strong> ${jawaban.nilaiPG || 0} / ${jawaban.totalPG || 0}</p>
+                    </div>
+            `;
+            
+            // Form koreksi
+            html += `
+                    <div class="koreksi-form" style="margin-top: 15px; border-top: 2px solid #eee; padding-top: 15px;">
+                        <h4 style="margin-bottom: 15px;">✏️ Form Koreksi</h4>
+            `;
+            
+            if (hasIsian) {
+                html += `
+                    <div class="koreksi-isian-section" style="margin-bottom: 20px;">
+                        <h5 style="color: #17a2b8; margin-bottom: 10px;">📝 Koreksi Isian</h5>
+                        ${renderKoreksiFieldsIsian(jawabanIsian, doc.id)}
+                    </div>
+                `;
+            }
+            
+            if (hasEssay) {
+                html += `
+                    <div class="koreksi-essay-section">
+                        <h5 style="color: #007bff; margin-bottom: 10px;">✏️ Koreksi Essay</h5>
+                        ${renderKoreksiFieldsEssay(jawabanUraian, doc.id)}
+                    </div>
+                `;
+            }
+            
+            html += `
+                        <button class="btn btn-primary" onclick="simpanKoreksi('${doc.id}')" style="margin-top: 15px; background: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+                            💾 Simpan Koreksi
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+        
+        if (html === '') {
+            jawabanList.innerHTML = '<p style="padding: 20px; text-align: center;">Tidak ada jawaban yang perlu dikoreksi</p>';
+        } else {
+            jawabanList.innerHTML = html;
+        }
+        
+    } catch (error) {
+        console.error('❌ Error loading jawaban:', error);
+        jawabanList.innerHTML = `<p style="padding: 20px; text-align: center; color: red;">Error: ${error.message}</p>`;
     }
-    
-    html += `
-            </tbody>
-        </table>
-    `;
-    
-    return html;
 }
 
 // Render field koreksi untuk isian dengan tabel
@@ -410,140 +437,7 @@ function renderKoreksiFieldsEssay(jawabanUraian, jawabanId) {
     return html;
 }
 
-// Load jawaban untuk dikoreksi
-async function loadJawabanKoreksi() {
-    const kelas = document.getElementById('filterKelasKoreksi')?.value;
-    const siswaId = document.getElementById('filterSiswaKoreksi')?.value;
-    const jawabanList = document.getElementById('jawabanList');
-    
-    if (!jawabanList) return;
-    
-    if (!kelas || !siswaId) {
-        jawabanList.innerHTML = '<p style="padding: 20px; text-align: center;">Pilih kelas dan siswa terlebih dahulu</p>';
-        return;
-    }
-    
-    jawabanList.innerHTML = '<p style="padding: 20px; text-align: center;">Loading jawaban...</p>';
-    
-    try {
-        if (typeof answersRef === 'undefined') {
-            console.error('answersRef tidak terdefinisi');
-            jawabanList.innerHTML = '<p style="padding: 20px; text-align: center; color: red;">Error: answersRef tidak terdefinisi</p>';
-            return;
-        }
-        
-        const snapshot = await answersRef
-            .where('siswaId', '==', siswaId)
-            .where('statusKoreksi', '==', 'pending')
-            .get();
-        
-        if (snapshot.empty) {
-            jawabanList.innerHTML = '<p style="padding: 20px; text-align: center;">Tidak ada jawaban yang perlu dikoreksi</p>';
-            return;
-        }
-        
-        let html = '';
-        let no = 1;
-        
-        for (const doc of snapshot.docs) {
-            const jawaban = doc.data();
-            const examId = jawaban.examId;
-            const jawabanIsian = jawaban.jawabanIsian || {};
-            const jawabanUraian = jawaban.jawabanUraian || {};
-            
-            // Skip jika tidak ada isian dan essay
-            if (Object.keys(jawabanIsian).length === 0 && Object.keys(jawabanUraian).length === 0) continue;
-            
-            const hasIsian = Object.keys(jawabanIsian).length > 0;
-            const hasEssay = Object.keys(jawabanUraian).length > 0;
-            
-            // Ambil data exam untuk nilai maksimal
-            const examData = await getExamData(examId);
-            // Nilai per soal dari exam: isian = 5, uraian = 10
-            const nilaiMaksIsian = examData?.nilaiPerSoal?.isian || 5;
-            const nilaiMaksUraian = examData?.nilaiPerSoal?.uraian || 10;
-            
-            // Update nilai maksimal dan ambil kunci jawaban untuk isian
-            for (const [qId, data] of Object.entries(jawabanIsian)) {
-                data.nilaiMaksimal = nilaiMaksIsian;
-                // Ambil kunci jawaban dari collection soal
-                const kunci = await getKunciJawaban(qId);
-                data.kunciJawaban = kunci;
-            }
-            
-            // Update nilai maksimal dan ambil kunci jawaban untuk essay
-            for (const [qId, data] of Object.entries(jawabanUraian)) {
-                data.nilaiMaksimal = nilaiMaksUraian;
-                // Ambil kunci jawaban dari collection soal
-                const kunci = await getKunciJawaban(qId);
-                data.kunciJawaban = kunci;
-            }
-            
-            html += `
-                <div class="jawaban-card" data-jawaban-id="${doc.id}" style="margin-bottom: 20px; border: 1px solid #ddd; border-radius: 8px; padding: 15px; background: white;">
-                    <div class="jawaban-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 10px;">
-                        <h3 style="margin: 0;">${no++}. ${escapeHtml(jawaban.mataPelajaran || 'Mata Pelajaran')}</h3>
-                        <span class="badge" style="background: #ffc107; color: #000; padding: 5px 10px; border-radius: 20px;">Menunggu Koreksi</span>
-                    </div>
-                    <div class="jawaban-info" style="margin: 10px 0; color: #666;">
-                        <p><strong>Siswa:</strong> ${escapeHtml(jawaban.siswaNama || '-')}</p>
-                        <p><strong>NIS:</strong> ${escapeHtml(jawaban.nis || '-')}</p>
-                        <p><strong>Kelas:</strong> ${escapeHtml(jawaban.kelas || '-')}</p>
-                        <p><strong>Waktu:</strong> ${jawaban.waktu ? new Date(jawaban.waktu.toDate()).toLocaleString() : '-'}</p>
-                        <p><strong>Nilai PG:</strong> ${jawaban.nilaiPG || 0} / ${jawaban.totalPG || 0}</p>
-                    </div>
-            `;
-            
-          
-            
-            
-            // Form koreksi
-            html += `
-                    <div class="koreksi-form" style="margin-top: 15px; border-top: 2px solid #eee; padding-top: 15px;">
-                        <h4 style="margin-bottom: 15px;">✏️ Form Koreksi</h4>
-            `;
-            
-            // Field koreksi untuk isian
-            if (hasIsian) {
-                html += `
-                    <div class="koreksi-isian-section" style="margin-bottom: 20px;">
-                        <h5 style="color: #17a2b8; margin-bottom: 10px;">📝 Koreksi Isian</h5>
-                        ${renderKoreksiFieldsIsian(jawabanIsian, doc.id)}
-                    </div>
-                `;
-            }
-            
-            // Field koreksi untuk essay
-            if (hasEssay) {
-                html += `
-                    <div class="koreksi-essay-section">
-                        <h5 style="color: #007bff; margin-bottom: 10px;">✏️ Koreksi Essay</h5>
-                        ${renderKoreksiFieldsEssay(jawabanUraian, doc.id)}
-                    </div>
-                `;
-            }
-            
-            html += `
-                        <button class="btn btn-primary" onclick="simpanKoreksi('${doc.id}')" style="margin-top: 15px; background: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
-                            💾 Simpan Koreksi
-                        </button>
-                    </div>
-                </div>
-            `;
-        }
-        
-        if (html === '') {
-            jawabanList.innerHTML = '<p style="padding: 20px; text-align: center;">Tidak ada jawaban yang perlu dikoreksi</p>';
-        } else {
-            jawabanList.innerHTML = html;
-        }
-        
-    } catch (error) {
-        console.error('❌ Error loading jawaban:', error);
-        jawabanList.innerHTML = `<p style="padding: 20px; text-align: center; color: red;">Error: ${error.message}</p>`;
-    }
-}
-
+// Fungsi simpanKoreksi (tetap sama seperti sebelumnya)
 async function simpanKoreksi(jawabanId) {
     if (!confirm('Apakah Anda yakin ingin menyimpan koreksi ini?')) {
         return;
@@ -577,31 +471,23 @@ async function simpanKoreksi(jawabanId) {
             uraian: {}
         };
         
-        // Ambil data exam untuk nilai maksimal
         const examData = await getExamData(examId);
-        // Nilai per soal dari exam: isian = 5, uraian = 10
         const nilaiMaksIsian = examData?.nilaiPerSoal?.isian || 5;
         const nilaiMaksUraian = examData?.nilaiPerSoal?.uraian || 10;
         
-        // Hitung total maksimal isian
         totalIsian = Object.keys(jawabanIsian).length * nilaiMaksIsian;
-        
-        // Hitung total maksimal essay
         totalUraian = Object.keys(jawabanUraian).length * nilaiMaksUraian;
         
-        // Koreksi untuk jawaban isian
         for (const [questionId, data] of Object.entries(jawabanIsian)) {
             const nilaiInput = document.getElementById(`nilaiIsian-${jawabanId}-${questionId}`);
             
             if (nilaiInput) {
                 let nilai = parseInt(nilaiInput.value) || 0;
-                
                 if (nilai > nilaiMaksIsian) nilai = nilaiMaksIsian;
                 if (nilai < 0) nilai = 0;
                 
                 nilaiIsianTotal += nilai;
                 
-                // Ambil kunci jawaban
                 const kunciJawaban = await getKunciJawaban(questionId);
                 
                 koreksiDetail.isian[questionId] = {
@@ -615,19 +501,16 @@ async function simpanKoreksi(jawabanId) {
             }
         }
         
-        // Koreksi untuk jawaban essay
         for (const [questionId, data] of Object.entries(jawabanUraian)) {
             const nilaiInput = document.getElementById(`nilaiEssay-${jawabanId}-${questionId}`);
             
             if (nilaiInput) {
                 let nilai = parseInt(nilaiInput.value) || 0;
-                
                 if (nilai > nilaiMaksUraian) nilai = nilaiMaksUraian;
                 if (nilai < 0) nilai = 0;
                 
                 nilaiUraianTotal += nilai;
                 
-                // Ambil kunci jawaban
                 const kunciJawaban = await getKunciJawaban(questionId);
                 
                 koreksiDetail.uraian[questionId] = {
@@ -644,13 +527,9 @@ async function simpanKoreksi(jawabanId) {
         const nilaiPG = jawaban.nilaiPG || 0;
         const totalPG = jawaban.totalPG || 0;
         
-        // HITUNG JUMLAH NILAI YANG DIPEROLEH
         const jumlahNilaiDiperoleh = nilaiPG + nilaiIsianTotal + nilaiUraianTotal;
-        
-        // HITUNG JUMLAH NILAI MAKSIMAL
         const jumlahNilaiMaksimal = totalPG + totalIsian + totalUraian;
         
-        // PERHITUNGAN NILAI AKHIR
         let nilaiAkhir = 0;
         if (jumlahNilaiMaksimal > 0) {
             nilaiAkhir = (jumlahNilaiDiperoleh / jumlahNilaiMaksimal) * 100;
@@ -658,22 +537,22 @@ async function simpanKoreksi(jawabanId) {
         }
         
         await answersRef.doc(jawabanId).update({
-    nilaiIsian: nilaiIsianTotal,
-    nilaiUraian: nilaiUraianTotal,
-    totalIsian: totalIsian,      // TAMBAHKAN
-    totalUraian: totalUraian,    // TAMBAHKAN
-    koreksiDetail: koreksiDetail,
-    statusKoreksi: 'selesai',
-    dikoreksiOleh: (() => {
-        try {
-            return JSON.parse(sessionStorage.getItem('currentUser'))?.nama || 'admin';
-        } catch(e) {
-            return 'admin';
-        }
-    })(),
-    waktuKoreksi: firebase.firestore.FieldValue.serverTimestamp(),
-    nilaiAkhir: nilaiAkhir
-});
+            nilaiIsian: nilaiIsianTotal,
+            nilaiUraian: nilaiUraianTotal,
+            totalIsian: totalIsian,
+            totalUraian: totalUraian,
+            koreksiDetail: koreksiDetail,
+            statusKoreksi: 'selesai',
+            dikoreksiOleh: (() => {
+                try {
+                    return JSON.parse(sessionStorage.getItem('currentUser'))?.nama || 'admin';
+                } catch(e) {
+                    return 'admin';
+                }
+            })(),
+            waktuKoreksi: firebase.firestore.FieldValue.serverTimestamp(),
+            nilaiAkhir: nilaiAkhir
+        });
         
         let message = '✅ Koreksi berhasil disimpan!\n\n';
         message += `📝 Nilai Isian: ${nilaiIsianTotal} / ${totalIsian}\n`;
@@ -692,20 +571,33 @@ async function simpanKoreksi(jawabanId) {
     }
 }
 
-// Event listener
+// 🔥 UPDATE: Event listener (dengan filter mapel)
 document.addEventListener('DOMContentLoaded', function() {
     const filterKelas = document.getElementById('filterKelasKoreksi');
+    const filterMapel = document.getElementById('filterMapelKoreksi');
     const filterSiswa = document.getElementById('filterSiswaKoreksi');
     
     if (filterKelas) {
         filterKelas.addEventListener('change', function() {
-            loadSiswaForKoreksi();
+            if (filterMapel && filterMapel.value) {
+                loadSiswaForKoreksi();
+            }
+        });
+    }
+    
+    if (filterMapel) {
+        filterMapel.addEventListener('change', function() {
+            if (filterKelas && filterKelas.value) {
+                loadSiswaForKoreksi();
+            }
         });
     }
     
     if (filterSiswa) {
         filterSiswa.addEventListener('change', function() {
-            loadJawabanKoreksi();
+            if (filterKelas && filterKelas.value && filterMapel && filterMapel.value) {
+                loadJawabanKoreksi();
+            }
         });
     }
 });
