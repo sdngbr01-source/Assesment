@@ -166,14 +166,22 @@ async function loadSiswaForKoreksi() {
     }
 }
 
-// 🔥 UPDATE: Load jawaban untuk dikoreksi (dengan filter kelas, mapel, siswa)
+// 🔥 UPDATE: Load jawaban untuk dikoreksi (dengan filter kelas, mapel, siswa) - VERSI DIPERBAIKI
 async function loadJawabanKoreksi() {
     const kelas = document.getElementById('filterKelasKoreksi')?.value;
     const mapel = document.getElementById('filterMapelKoreksi')?.value;
     const siswaId = document.getElementById('filterSiswaKoreksi')?.value;
     const jawabanList = document.getElementById('jawabanList');
     
-    if (!jawabanList) return;
+    console.log('🔍 loadJawabanKoreksi dipanggil dengan:');
+    console.log('Kelas:', kelas);
+    console.log('Mapel:', mapel);
+    console.log('SiswaId:', siswaId);
+    
+    if (!jawabanList) {
+        console.error('Element jawabanList tidak ditemukan');
+        return;
+    }
     
     if (!kelas || !mapel || !siswaId) {
         jawabanList.innerHTML = '<p style="padding: 20px; text-align: center;">Pilih Kelas, Mapel, dan Siswa terlebih dahulu</p>';
@@ -189,12 +197,24 @@ async function loadJawabanKoreksi() {
             return;
         }
         
+        // QUERY: Ambil data dengan status pending
         const snapshot = await answersRef
             .where('kelas', '==', kelas)
             .where('mataPelajaran', '==', mapel)
             .where('siswaId', '==', siswaId)
             .where('statusKoreksi', '==', 'pending')
             .get();
+        
+        console.log('📊 Hasil query snapshot:', snapshot.size, 'data ditemukan');
+        
+        // DEBUG: Tampilkan semua data yang ditemukan
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            console.log('- ID:', doc.id);
+            console.log('  status:', data.statusKoreksi);
+            console.log('  ada jawabanIsian?', Object.keys(data.jawabanIsian || {}).length);
+            console.log('  ada jawabanUraian?', Object.keys(data.jawabanUraian || {}).length);
+        });
         
         if (snapshot.empty) {
             jawabanList.innerHTML = '<p style="padding: 20px; text-align: center;">Tidak ada jawaban yang perlu dikoreksi</p>';
@@ -210,14 +230,25 @@ async function loadJawabanKoreksi() {
             const jawabanIsian = jawaban.jawabanIsian || {};
             const jawabanUraian = jawaban.jawabanUraian || {};
             
-            if (Object.keys(jawabanIsian).length === 0 && Object.keys(jawabanUraian).length === 0) continue;
+            console.log(`📝 Memproses dokumen ${no}:`, doc.id);
+            console.log('  Jumlah isian:', Object.keys(jawabanIsian).length);
+            console.log('  Jumlah essay:', Object.keys(jawabanUraian).length);
+            
+            if (Object.keys(jawabanIsian).length === 0 && Object.keys(jawabanUraian).length === 0) {
+                console.log('  ⚠️ Tidak ada isian atau essay, skip');
+                continue;
+            }
             
             const hasIsian = Object.keys(jawabanIsian).length > 0;
             const hasEssay = Object.keys(jawabanUraian).length > 0;
             
+            // Ambil data exam untuk nilai maksimal
             const examData = await getExamData(examId);
             const nilaiMaksIsian = examData?.nilaiPerSoal?.isian || 5;
             const nilaiMaksUraian = examData?.nilaiPerSoal?.uraian || 10;
+            
+            console.log('  Nilai maks isian:', nilaiMaksIsian);
+            console.log('  Nilai maks uraian:', nilaiMaksUraian);
             
             // Update nilai maksimal dan ambil kunci jawaban untuk isian
             for (const [qId, data] of Object.entries(jawabanIsian)) {
@@ -282,9 +313,10 @@ async function loadJawabanKoreksi() {
         }
         
         if (html === '') {
-            jawabanList.innerHTML = '<p style="padding: 20px; text-align: center;">Tidak ada jawaban yang perlu dikoreksi</p>';
+            jawabanList.innerHTML = '<p style="padding: 20px; text-align: center;">Tidak ada jawaban yang perlu dikoreksi (semua sudah diproses)</p>';
         } else {
             jawabanList.innerHTML = html;
+            console.log('✅ HTML berhasil dirender');
         }
         
     } catch (error) {
@@ -292,7 +324,6 @@ async function loadJawabanKoreksi() {
         jawabanList.innerHTML = `<p style="padding: 20px; text-align: center; color: red;">Error: ${error.message}</p>`;
     }
 }
-
 // Render field koreksi untuk isian dengan tabel
 function renderKoreksiFieldsIsian(jawabanIsian, jawabanId) {
     if (!jawabanIsian || Object.keys(jawabanIsian).length === 0) {
