@@ -1,11 +1,11 @@
 // Konfigurasi Firebase
 const firebaseConfig = {
-    apiKey: "AIzaSyDLrBJycmHrxy1Gow27cSIQh7PeuudtmnU",
-  authDomain: "asessment-2-5c5d5.firebaseapp.com",
-  projectId: "asessment-2-5c5d5",
-  storageBucket: "asessment-2-5c5d5.firebasestorage.app",
-  messagingSenderId: "1048522029291",
-  appId: "1:1048522029291:web:3215f7906b74ad229d66ae"
+   apiKey: "AIzaSyAAF-5CHAg4QLx3_d-71MgfA3weCsCbiwE",
+  authDomain: "asessment-sumatif.firebaseapp.com",
+  projectId: "asessment-sumatif",
+  storageBucket: "asessment-sumatif.firebasestorage.app",
+  messagingSenderId: "432547679185",
+  appId: "1:432547679185:web:c976b63120812db12d2ef0"
 };
 
 // Inisialisasi Firebase
