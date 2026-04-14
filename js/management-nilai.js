@@ -8,12 +8,12 @@ async function loadNilai() {
     
     if (!tbody) return;
     
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">Loading...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align: center;">Loading...</td></tr>';
     
     try {
         if (typeof answersRef === 'undefined') {
             console.error('answersRef tidak terdefinisi');
-            tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: red;">Error: answersRef tidak terdefinisi</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: red;">Error: answersRef tidak terdefinisi</td></tr>';
             return;
         }
         
@@ -25,7 +25,7 @@ async function loadNilai() {
         const snapshot = await query.orderBy('waktu', 'desc').get();
         
         if (snapshot.empty) {
-            tbody.innerHTML = '<tr><td colspan="9" style="text-align: center">Tidak ada data</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align: center">Tidak ada data</td></tr>';
             return;
         }
         
@@ -46,7 +46,7 @@ async function loadNilai() {
         });
         
         if (filteredData.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="9" style="text-align: center">Tidak ada data sesuai filter</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align: center">Tidak ada data sesuai filter</td></tr>';
             return;
         }
         
@@ -119,6 +119,7 @@ async function loadNilai() {
                 totalUraian = Object.keys(nilai.jawabanUraian).length * 10;
             }
             
+            // ========== PERBAIKAN RUMUS PERHITUNGAN NILAI ==========
             const jumlahNilaiDiperoleh = nilaiPG + nilaiIsian + nilaiUraian;
             const jumlahNilaiMaksimal = totalPG + totalIsian + totalUraian;
             
@@ -148,15 +149,159 @@ async function loadNilai() {
             row.insertCell(1).textContent = nilai.siswaNama || '-';
             row.insertCell(2).textContent = nilai.kelas || '-';
             row.insertCell(3).textContent = nilai.mataPelajaran || '-';
+            
+            // Tampilkan hanya angka (tanpa /total)
             row.insertCell(4).textContent = nilaiPG;
             row.insertCell(5).textContent = nilaiIsian;
             row.insertCell(6).textContent = nilaiUraian;
             row.insertCell(7).innerHTML = '<strong>' + nilaiAkhir + '</strong>';
             row.insertCell(8).innerHTML = '<span class="exam-status ' + statusClass + '">' + statusText + '</span>';
+            
+            // ========== KOLOM AKSI (Batalkan Koreksi) ==========
+            const actionCell = row.insertCell(9);
+            
+            // Tombol Batalkan Koreksi untuk data yang sudah selesai dikoreksi
+            if (nilai.statusKoreksi === 'selesai') {
+                actionCell.innerHTML = `
+                    <button class="btn-batal-koreksi" 
+                            onclick="batalKoreksi('${nilai.id}', '${escapeHtml(nilai.siswaNama)}', '${escapeHtml(nilai.mataPelajaran)}')" 
+                            title="Batalkan Koreksi">
+                        🔄 Batalkan Koreksi
+                    </button>
+                `;
+            } else {
+                // Untuk data yang masih pending, tampilkan teks saja
+                actionCell.innerHTML = '<span style="color: #999; font-size: 12px;">Menunggu Koreksi</span>';
+            }
         }
         
     } catch (error) {
         console.error('Error loading nilai:', error);
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: red;">Error: ' + error.message + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: red;">Error: ' + error.message + '</td></tr>';
     }
+}
+
+// ========== FUNGSI BATALKAN KOREKSI (PER SISWA) ==========
+async function batalKoreksi(docId, siswaNama, mataPelajaran) {
+    // Konfirmasi pembatalan
+    const confirmed = confirm(`⚠️ BATALKAN KOREKSI\n\nApakah Anda yakin ingin membatalkan koreksi untuk:\n\n📌 Siswa: ${siswaNama}\n📖 Mapel: ${mataPelajaran}\n\n❓ Data akan kembali ke status "Menunggu Koreksi" dan muncul di halaman Koreksi Essay.\n\nKlik OK untuk melanjutkan.`);
+    
+    if (!confirmed) return;
+    
+    // Tampilkan toast
+    if (typeof showToast === 'function') {
+        showToast('info', '⏳ Membatalkan koreksi...');
+    } else {
+        console.log('Membatalkan koreksi...');
+    }
+    
+    try {
+        if (typeof answersRef === 'undefined') {
+            throw new Error('answersRef tidak terdefinisi');
+        }
+        
+        // Update status menjadi pending dan reset nilai
+        await answersRef.doc(docId).update({
+            statusKoreksi: 'pending',
+            dikoreksiOleh: null,
+            waktuKoreksi: null,
+            koreksiDetail: firebase.firestore.FieldValue.delete(),
+            nilaiIsian: 0,
+            nilaiUraian: 0,
+            nilaiAkhir: 0,
+            lastReset: firebase.firestore.FieldValue.serverTimestamp(),
+            resetBy: (() => {
+                try {
+                    return JSON.parse(sessionStorage.getItem('currentUser'))?.nama || 'admin';
+                } catch(e) {
+                    return 'admin';
+                }
+            })()
+        });
+        
+        if (typeof showToast === 'function') {
+            showToast('success', `✅ Berhasil membatalkan koreksi ${siswaNama} - ${mataPelajaran}`);
+        } else {
+            alert(`✅ Berhasil membatalkan koreksi ${siswaNama} - ${mataPelajaran}`);
+        }
+        
+        // Reload tabel nilai
+        await loadNilai();
+        
+        // Refresh halaman koreksi essay jika sedang aktif
+        if (typeof loadJawabanKoreksi === 'function') {
+            const koreksiTab = document.getElementById('tab-koreksi');
+            if (koreksiTab && koreksiTab.classList.contains('active')) {
+                loadJawabanKoreksi();
+            }
+        }
+        
+    } catch (error) {
+        console.error('Error membatalkan koreksi:', error);
+        if (typeof showToast === 'function') {
+            showToast('error', '❌ Gagal membatalkan koreksi: ' + error.message);
+        } else {
+            alert('❌ Gagal membatalkan koreksi: ' + error.message);
+        }
+    }
+}
+
+// ========== FUNGSI HELPER ==========
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// ========== TAMBAHKAN CSS (CEK APAKAH SUDAH ADA) ==========
+if (!document.getElementById('management-nilai-style')) {
+    const styleTag = document.createElement('style');
+    styleTag.id = 'management-nilai-style';
+    styleTag.textContent = `
+        /* Tombol Batalkan Koreksi */
+        .btn-batal-koreksi {
+            background: #ffc107;
+            color: #333;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+        }
+        
+        .btn-batal-koreksi:hover {
+            background: #e0a800;
+            transform: scale(1.02);
+        }
+        
+        .btn-batal-koreksi:active {
+            transform: scale(0.98);
+        }
+        
+        /* Status Badge */
+        .status-pending {
+            background: #ffc107;
+            color: #333;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            display: inline-block;
+        }
+        
+        .status-selesai {
+            background: #28a745;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            display: inline-block;
+        }
+    `;
+    document.head.appendChild(styleTag);
 }
