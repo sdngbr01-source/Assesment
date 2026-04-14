@@ -181,68 +181,46 @@ async function loadNilai() {
     }
 }
 
-// ========== FUNGSI BATALKAN KOREKSI (PER SISWA) ==========
+// ========== FUNGSI BATALKAN KOREKSI (TIDAK MENGHAPUS JAWABAN) ==========
 async function batalKoreksi(docId, siswaNama, mataPelajaran) {
     // Konfirmasi pembatalan
-    const confirmed = confirm(`⚠️ BATALKAN KOREKSI\n\nApakah Anda yakin ingin membatalkan koreksi untuk:\n\n📌 Siswa: ${siswaNama}\n📖 Mapel: ${mataPelajaran}\n\n❓ Data akan kembali ke status "Menunggu Koreksi" dan muncul di halaman Koreksi Essay.\n\nKlik OK untuk melanjutkan.`);
+    const confirmed = confirm(`⚠️ BATALKAN KOREKSI\n\nApakah Anda yakin ingin membatalkan koreksi untuk:\n\n📌 Siswa: ${siswaNama}\n📖 Mapel: ${mataPelajaran}\n\n⚠️ PERINGATAN: Hanya nilai koreksi yang akan dihapus, JAWABAN SISWA TETAP ADA.\n\nData akan kembali ke status "Menunggu Koreksi" dan muncul di halaman Koreksi Essay.`);
     
     if (!confirmed) return;
-    
-    // Tampilkan toast
-    if (typeof showToast === 'function') {
-        showToast('info', '⏳ Membatalkan koreksi...');
-    } else {
-        console.log('Membatalkan koreksi...');
-    }
     
     try {
         if (typeof answersRef === 'undefined') {
             throw new Error('answersRef tidak terdefinisi');
         }
         
-        // Update status menjadi pending dan reset nilai
+        // HANYA HAPUS DATA KOREKSI, JANGAN HAPUS JAWABAN SISWA!
         await answersRef.doc(docId).update({
             statusKoreksi: 'pending',
             dikoreksiOleh: null,
             waktuKoreksi: null,
-            koreksiDetail: firebase.firestore.FieldValue.delete(),
+            koreksiDetail: firebase.firestore.FieldValue.delete(), // Hanya hapus koreksiDetail
             nilaiIsian: 0,
             nilaiUraian: 0,
-            nilaiAkhir: 0,
-            lastReset: firebase.firestore.FieldValue.serverTimestamp(),
-            resetBy: (() => {
-                try {
-                    return JSON.parse(sessionStorage.getItem('currentUser'))?.nama || 'admin';
-                } catch(e) {
-                    return 'admin';
-                }
-            })()
+            nilaiAkhir: 0
+            // ⚠️ TIDAK menghapus jawabanIsian dan jawabanUraian!
         });
         
-        if (typeof showToast === 'function') {
-            showToast('success', `✅ Berhasil membatalkan koreksi ${siswaNama} - ${mataPelajaran}`);
-        } else {
-            alert(`✅ Berhasil membatalkan koreksi ${siswaNama} - ${mataPelajaran}`);
-        }
+        console.log(`✅ Berhasil batalkan koreksi: ${docId}`);
+        alert(`✅ Berhasil membatalkan koreksi ${siswaNama} - ${mataPelajaran}\n\nJawaban siswa tetap tersimpan.`);
         
         // Reload tabel nilai
         await loadNilai();
         
-        // Refresh halaman koreksi essay jika sedang aktif
-        if (typeof loadJawabanKoreksi === 'function') {
-            const koreksiTab = document.getElementById('tab-koreksi');
-            if (koreksiTab && koreksiTab.classList.contains('active')) {
-                loadJawabanKoreksi();
-            }
+        // Refresh halaman koreksi jika sedang aktif
+        const koreksiTab = document.getElementById('tab-koreksi');
+        if (koreksiTab && koreksiTab.classList.contains('active')) {
+            if (typeof loadSiswaForKoreksi === 'function') await loadSiswaForKoreksi();
+            if (typeof loadJawabanKoreksi === 'function') await loadJawabanKoreksi();
         }
         
     } catch (error) {
         console.error('Error membatalkan koreksi:', error);
-        if (typeof showToast === 'function') {
-            showToast('error', '❌ Gagal membatalkan koreksi: ' + error.message);
-        } else {
-            alert('❌ Gagal membatalkan koreksi: ' + error.message);
-        }
+        alert('❌ Gagal membatalkan koreksi: ' + error.message);
     }
 }
 
