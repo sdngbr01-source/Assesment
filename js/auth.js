@@ -47,7 +47,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
         } else if (role === 'admin') {
             // Login admin (bisa menggunakan email/password atau custom)
             // Contoh sederhana: cek username dan password hardcoded
-            if (username === 'admin' && password === 'admin123') {
+            if (username === 'admin' && password === '20524756') {
                 sessionStorage.setItem('currentUser', JSON.stringify({
                     id: 'admin1',
                     nama: 'Administrator',
