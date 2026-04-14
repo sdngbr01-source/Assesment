@@ -328,6 +328,36 @@ function resetPdfSetting() {
     showToast('Setting direset ke default', 'info');
 }
 
+// ============ FUNGSI GET PDF SETTING ============
+function getPdfSetting() {
+    try {
+        // Coba ambil dari localStorage dulu
+        let setting = localStorage.getItem(PDF_SETTING_KEY);
+        if (setting) {
+            setting = JSON.parse(setting);
+            console.log('✅ Setting PDF dari localStorage:', setting.sekolahNama);
+            return setting;
+        }
+        
+        // Jika tidak ada, return default
+        return {
+            sekolahNama: 'SD NEGERI 01 JAKARTA\nTERAKREDITASI A',
+            sekolahAlamat: 'Jl. Pendidikan No. 123\nKel. Menteng, Kec. Menteng',
+            sekolahKota: 'Jakarta Pusat',
+            sekolahTelp: '(021) 12345678',
+            sekolahEmail: 'info@sekolah.sch.id',
+            sekolahMotto: 'Berilmu, Beriman, Berakhlak Mulia',
+            headerWarna: '#2c3e50',
+            logoWidth: 40,
+            logoHeight: 40,
+            logoKiriData: '',
+            logoKananData: ''
+        };
+    } catch (error) {
+        console.error('Error getPdfSetting:', error);
+        return {};
+    }
+}
 // ============ GENERATE PDF ============
 // ============ GENERATE PDF ============
 async function generateLembarJawaban() {
@@ -339,7 +369,7 @@ async function generateLembarJawaban() {
         return;
     }
     
-    const setting = JSON.parse(localStorage.getItem(PDF_SETTING_KEY) || '{}');
+    const setting = getPdfSetting();
     
     if (typeof usersRef === 'undefined') {
         showToast('Data siswa tidak tersedia', 'error');
@@ -851,4 +881,27 @@ if (typeof window !== 'undefined') {
     window.resetPdfSetting = resetPdfSetting;
     window.generateLembarJawaban = generateLembarJawaban;
     window.downloadLaporanKelas = downloadLaporanKelas;
+}
+
+
+// ============ FUNGSI SIMPAN SETTING KE LOCALSTORAGE ============
+function savePdfSettingToLocal() {
+    const setting = {
+        sekolahNama: getElement('sekolahNama')?.value || '',
+        sekolahAlamat: getElement('sekolahAlamat')?.value || '',
+        sekolahKota: getElement('sekolahKota')?.value || '',
+        sekolahTelp: getElement('sekolahTelp')?.value || '',
+        sekolahEmail: getElement('sekolahEmail')?.value || '',
+        sekolahMotto: getElement('sekolahMotto')?.value || '',
+        headerWarna: getElement('headerWarna')?.value || '#2c3e50',
+        logoWidth: getElement('logoWidth')?.value || 40,
+        logoHeight: getElement('logoHeight')?.value || 40,
+        logoKiriData: getElement('logoKiriData')?.value || '',
+        logoKananData: getElement('logoKananData')?.value || '',
+        updatedAt: new Date().toISOString()
+    };
+    
+    localStorage.setItem(PDF_SETTING_KEY, JSON.stringify(setting));
+    console.log('✅ Setting PDF disimpan ke localStorage');
+    return setting;
 }
