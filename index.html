@@ -143,6 +143,15 @@
             color: #dc3545;
         }
         
+        /* Style baru untuk tanggal */
+        .tanggal-info {
+            font-size: 18px;
+            font-weight: bold;
+    color: #333;
+    margin-top: 10px;
+    letter-spacing: 1px;
+        }
+        
         @media (max-width: 768px) {
             .search-section {
                 padding: 20px;
@@ -164,10 +173,10 @@
     <div class="container">
         <div class="landing-page">
              <div class="header">
-    <img src="logo.png" alt="Logo" style="width: 120px; height: 120px; object-fit: cover; border-radius: 50%; background: transparent; padding: 5px; margin-bottom: 15px;">
-    <h1>Sistem Assessment SDN Gambirono 01</h1>
-    <p>Platform Assesment Online</p>
-</div>
+                <img src="logo.png" alt="Logo" style="width: 120px; height: 120px; object-fit: cover; border-radius: 50%; background: transparent; padding: 5px; margin-bottom: 15px;">
+                <h1>Sistem Assessment SDN Gambirono 01</h1>
+                <p class="tanggal-info" id="tanggalDisplay"></p>
+            </div>
             
             <div class="role-selection">
                 <h2>Login Sebagai</h2>
@@ -196,19 +205,19 @@
                     </div>
                     <div class="search-input-group">
                         <select id="searchMapel">
-   <option value="Pendidikan Pancasila">Pendidikan Pancasila</option>
-		<option value="Pendidikan Agama Islam">Pendidikan Agama Islam</option>
-                        <option value="">Pilih Mata Pelajaran</option>
-                        <option value="Matematika">Matematika</option>
-                        <option value="Bahasa Indonesia">Bahasa Indonesia</option>
-                        <option value="IPAS">IPAS</option>
-                        <option value="IPS">IPS</option>
-                        <option value="PPKn">PPKn</option>
-                        <option value="PJOK">PJOK</option>
-                        <option value="SBdP">SBdP</option>
-						<option value="Bahasa inggris">Bahasa Inggris</option>
-						<option value="Bahasa Jawa">Bahasa Jawa</option>
-</select>
+                            <option value="">Pilih Mata Pelajaran</option>
+                            <option value="Pendidikan Pancasila">Pendidikan Pancasila</option>
+                            <option value="Pendidikan Agama Islam">Pendidikan Agama Islam</option>
+                            <option value="Matematika">Matematika</option>
+                            <option value="Bahasa Indonesia">Bahasa Indonesia</option>
+                            <option value="IPAS">IPAS</option>
+                            <option value="IPS">IPS</option>
+                            <option value="PPKn">PPKn</option>
+                            <option value="PJOK">PJOK</option>
+                            <option value="SBdP">SBdP</option>
+                            <option value="Bahasa inggris">Bahasa Inggris</option>
+                            <option value="Bahasa Jawa">Bahasa Jawa</option>
+                        </select>
                     </div>
                     <button class="btn-search" onclick="cariHasilUjian()">🔍 Cari Nilai</button>
                 </div>
@@ -235,187 +244,219 @@
     
     <!-- Script Pencarian Hasil Ujian -->
     <script>
+        // Fungsi untuk mendapatkan hari dalam Bahasa Indonesia
+        function getHariIndonesia(dayIndex) {
+            const hari = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+            return hari[dayIndex];
+        }
+        
+        // Fungsi untuk mendapatkan bulan dalam Bahasa Indonesia
+        function getBulanIndonesia(monthIndex) {
+            const bulan = [
+                'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+                'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+            ];
+            return bulan[monthIndex];
+        }
+        
+        // Fungsi untuk menampilkan tanggal saat ini
+        function tampilkanTanggal() {
+            const now = new Date();
+            const hari = getHariIndonesia(now.getDay());
+            const tanggal = now.getDate();
+            const bulan = getBulanIndonesia(now.getMonth());
+            const tahun = now.getFullYear();
+            
+            const tanggalString = `${hari}, ${tanggal} ${bulan} ${tahun}`;
+            document.getElementById('tanggalDisplay').textContent = tanggalString;
+        }
+        
+        // Panggil fungsi tanggal saat halaman dimuat
+        document.addEventListener('DOMContentLoaded', function() {
+            tampilkanTanggal();
+        });
+        
         // Fungsi pencarian hasil ujian
-    async function cariHasilUjian() {
-        const nis = document.getElementById('searchNIS').value.trim();
-        const mapel = document.getElementById('searchMapel').value;
-        const resultContainer = document.getElementById('resultContainer');
-        const resultContent = document.getElementById('resultContent');
-        
-        if (!nis) {
-            alert('❌ Silakan masukkan NIS Anda!');
-            return;
-        }
-        
-        if (!mapel) {
-            alert('❌ Silakan pilih mata pelajaran!');
-            return;
-        }
-        
-        resultContainer.classList.add('show');
-        resultContent.innerHTML = '<div class="loading-result">🔍 Sedang mencari data...</div>';
-        
-        try {
-            console.log('Mencari NIS:', nis);
-            console.log('Mencari Mapel:', mapel);
+        async function cariHasilUjian() {
+            const nis = document.getElementById('searchNIS').value.trim();
+            const mapel = document.getElementById('searchMapel').value;
+            const resultContainer = document.getElementById('resultContainer');
+            const resultContent = document.getElementById('resultContent');
             
-            // 🔥 CARI SISWA BERDASARKAN NIS (tanpa filter role dulu)
-            const siswaSnapshot = await firebase.firestore().collection('users')
-                .where('nis', '==', nis)
-                .get();
-            
-            console.log('Siswa ditemukan:', siswaSnapshot.size);
-            
-            if (siswaSnapshot.empty) {
-                resultContent.innerHTML = '<div class="no-result">❌ Data siswa tidak ditemukan. Pastikan NIS Anda benar.</div>';
+            if (!nis) {
+                alert('❌ Silakan masukkan USER Anda!');
                 return;
             }
             
-            // Ambil data siswa pertama
-            const siswaDoc = siswaSnapshot.docs[0];
-            const siswa = siswaDoc.data();
-            const siswaId = siswaDoc.id;
+            if (!mapel) {
+                alert('❌ Silakan pilih mata pelajaran!');
+                return;
+            }
             
-            console.log('ID Siswa:', siswaId);
-            console.log('Nama Siswa:', siswa.nama);
+            resultContainer.classList.add('show');
+            resultContent.innerHTML = '<div class="loading-result">🔍 Sedang mencari data...</div>';
             
-            // 🔥 CARI JAWABAN berdasarkan siswaId dan mataPelajaran
-            const answersSnapshot = await firebase.firestore().collection('answers')
-                .where('siswaId', '==', siswaId)
-                .where('mataPelajaran', '==', mapel)
-                .get();
-            
-            console.log('Jawaban ditemukan:', answersSnapshot.size);
-            
-            if (answersSnapshot.empty) {
-                // Coba cari berdasarkan NIS (fallback)
-                const answersByNis = await firebase.firestore().collection('answers')
+            try {
+                console.log('Mencari NIS:', nis);
+                console.log('Mencari Mapel:', mapel);
+                
+                // 🔥 CARI SISWA BERDASARKAN NIS (tanpa filter role dulu)
+                const siswaSnapshot = await firebase.firestore().collection('users')
                     .where('nis', '==', nis)
-                    .where('mataPelajaran', '==', mapel)
                     .get();
                 
-                console.log('Jawaban berdasarkan NIS:', answersByNis.size);
+                console.log('Siswa ditemukan:', siswaSnapshot.size);
                 
-                if (answersByNis.empty) {
-                    resultContent.innerHTML = `
-                        <div class="no-result">
-                            📭 Belum ada nilai untuk ${mapel}.<br>
-                            <small>Silakan kerjakan ujian terlebih dahulu.</small>
-                        </div>
-                    `;
+                if (siswaSnapshot.empty) {
+                    resultContent.innerHTML = '<div class="no-result">❌ Data siswa tidak ditemukan. Pastikan USER Anda benar.</div>';
                     return;
                 }
                 
-                // Proses answersByNis
-                displayResults(answersByNis, siswa);
+                // Ambil data siswa pertama
+                const siswaDoc = siswaSnapshot.docs[0];
+                const siswa = siswaDoc.data();
+                const siswaId = siswaDoc.id;
+                
+                console.log('ID Siswa:', siswaId);
+                console.log('Nama Siswa:', siswa.nama);
+                
+                // 🔥 CARI JAWABAN berdasarkan siswaId dan mataPelajaran
+                const answersSnapshot = await firebase.firestore().collection('answers')
+                    .where('siswaId', '==', siswaId)
+                    .where('mataPelajaran', '==', mapel)
+                    .get();
+                
+                console.log('Jawaban ditemukan:', answersSnapshot.size);
+                
+                if (answersSnapshot.empty) {
+                    // Coba cari berdasarkan NIS (fallback)
+                    const answersByNis = await firebase.firestore().collection('answers')
+                        .where('nis', '==', nis)
+                        .where('mataPelajaran', '==', mapel)
+                        .get();
+                    
+                    console.log('Jawaban berdasarkan NIS:', answersByNis.size);
+                    
+                    if (answersByNis.empty) {
+                        resultContent.innerHTML = `
+                            <div class="no-result">
+                                📭 Belum ada nilai untuk ${mapel}.<br>
+                                <small>Silakan kerjakan ujian terlebih dahulu.</small>
+                            </div>
+                        `;
+                        return;
+                    }
+                    
+                    // Proses answersByNis
+                    displayResults(answersByNis, siswa);
+                    return;
+                }
+                
+                // Tampilkan hasil
+                displayResults(answersSnapshot, siswa);
+                
+            } catch (error) {
+                console.error('Error:', error);
+                resultContent.innerHTML = `<div class="error-result">⚠️ Terjadi kesalahan: ${error.message}</div>`;
+            }
+        }
+        
+        function displayResults(answersSnapshot, siswa) {
+            const resultContent = document.getElementById('resultContent');
+            const mapel = document.getElementById('searchMapel').value;
+            
+            // 🔥 AMBIL HANYA DATA DENGAN STATUS 'selesai' (sudah dikoreksi)
+            let selesaiData = [];
+            answersSnapshot.forEach(doc => {
+                const data = doc.data();
+                if (data.statusKoreksi === 'selesai') {
+                    selesaiData.push({
+                        id: doc.id,
+                        ...data
+                    });
+                }
+            });
+            
+            // Jika tidak ada yang selesai, tampilkan pesan
+            if (selesaiData.length === 0) {
+                resultContent.innerHTML = `
+                    <div class="no-result">
+                        📭 Nilai untuk ${mapel} belum dikoreksi oleh guru.<br>
+                        <small>Silakan tunggu koreksi dari guru.</small>
+                    </div>
+                `;
                 return;
             }
             
-            // Tampilkan hasil
-            displayResults(answersSnapshot, siswa);
-            
-        } catch (error) {
-            console.error('Error:', error);
-            resultContent.innerHTML = `<div class="error-result">⚠️ Terjadi kesalahan: ${error.message}</div>`;
-        }
-    }
-    
-    function displayResults(answersSnapshot, siswa) {
-    const resultContent = document.getElementById('resultContent');
-    const mapel = document.getElementById('searchMapel').value;
-    
-    // 🔥 AMBIL HANYA DATA DENGAN STATUS 'selesai' (sudah dikoreksi)
-    let selesaiData = [];
-    answersSnapshot.forEach(doc => {
-        const data = doc.data();
-        if (data.statusKoreksi === 'selesai') {
-            selesaiData.push({
-                id: doc.id,
-                ...data
+            // Ambil data terakhir (waktu terbaru)
+            selesaiData.sort((a, b) => {
+                let timeA = a.waktuKoreksi?.toDate ? a.waktuKoreksi.toDate() : new Date(0);
+                let timeB = b.waktuKoreksi?.toDate ? b.waktuKoreksi.toDate() : new Date(0);
+                return timeB - timeA;
             });
+            
+            const data = selesaiData[0];
+            
+            // Ambil nilai dengan benar
+            let nilaiPG = data.nilaiPG || 0;
+            let nilaiIsian = data.nilaiIsian || 0;
+            let nilaiUraian = data.nilaiUraian || 0;
+            let totalPG = data.totalPG || 1;
+            let totalIsian = data.totalIsian || 1;
+            let totalUraian = data.totalUraian || 1;
+            
+            // Hitung nilai akhir
+            let totalNilai = nilaiPG + nilaiIsian + nilaiUraian;
+            let maxNilai = totalPG + totalIsian + totalUraian;
+            let nilaiAkhir = maxNilai > 0 ? Math.round((totalNilai / maxNilai) * 100) : 0;
+            
+            let nilaiClass = nilaiAkhir >= 70 ? 'nilai' : 'nilai-rendah';
+            
+            let resultsHtml = `
+                <table class="result-table">
+                    <thead>
+                        <tr>
+                            <th>No</th>
+                            <th>Nama Siswa</th>
+                            <th>Kelas</th>
+                            <th>Mata Pelajaran</th>
+                            <th>Nilai PG</th>
+                            <th>Nilai Isian</th>
+                            <th>Nilai Uraian</th>
+                            <th>Nilai Akhir</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>1</td>
+                            <td><strong>${escapeHtml(data.siswaNama || siswa.nama || '-')}</strong></td>
+                            <td>${escapeHtml(data.kelas || siswa.kelas || '-')}</td>
+                            <td>${escapeHtml(data.mataPelajaran)}</td>
+                            <td>${nilaiPG}</td>
+                            <td>${nilaiIsian}</td>
+                            <td>${nilaiUraian}</td>
+                            <td><span class="${nilaiClass}">${nilaiAkhir}</span> / 100</td>
+                        </tr>
+                    </tbody>
+                </table>
+            `;
+            
+            resultContent.innerHTML = resultsHtml;
         }
-    });
-    
-    // Jika tidak ada yang selesai, tampilkan pesan
-    if (selesaiData.length === 0) {
-        resultContent.innerHTML = `
-            <div class="no-result">
-                📭 Nilai untuk ${mapel} belum dikoreksi oleh guru.<br>
-                <small>Silakan tunggu koreksi dari guru.</small>
-            </div>
-        `;
-        return;
-    }
-    
-    // Ambil data terakhir (waktu terbaru)
-    selesaiData.sort((a, b) => {
-        let timeA = a.waktuKoreksi?.toDate ? a.waktuKoreksi.toDate() : new Date(0);
-        let timeB = b.waktuKoreksi?.toDate ? b.waktuKoreksi.toDate() : new Date(0);
-        return timeB - timeA;
-    });
-    
-    const data = selesaiData[0];
-    
-    // Ambil nilai dengan benar
-    let nilaiPG = data.nilaiPG || 0;
-    let nilaiIsian = data.nilaiIsian || 0;
-    let nilaiUraian = data.nilaiUraian || 0;
-    let totalPG = data.totalPG || 1;
-    let totalIsian = data.totalIsian || 1;
-    let totalUraian = data.totalUraian || 1;
-    
-    // Hitung nilai akhir
-    let totalNilai = nilaiPG + nilaiIsian + nilaiUraian;
-    let maxNilai = totalPG + totalIsian + totalUraian;
-    let nilaiAkhir = maxNilai > 0 ? Math.round((totalNilai / maxNilai) * 100) : 0;
-    
-    let nilaiClass = nilaiAkhir >= 70 ? 'nilai' : 'nilai-rendah';
-    
-    let resultsHtml = `
-        <table class="result-table">
-            <thead>
-                <tr>
-                    <th>No</th>
-                    <th>Nama Siswa</th>
-                    <th>Kelas</th>
-                    <th>Mata Pelajaran</th>
-                    <th>Nilai PG</th>
-                    <th>Nilai Isian</th>
-                    <th>Nilai Uraian</th>
-                    <th>Nilai Akhir</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>1</td>
-                    <td><strong>${escapeHtml(data.siswaNama || siswa.nama || '-')}</strong></td>
-                    <td>${escapeHtml(data.kelas || siswa.kelas || '-')}</td>
-                    <td>${escapeHtml(data.mataPelajaran)}</td>
-                    <td>${nilaiPG} </td>
-                    <td>${nilaiIsian} </td>
-                    <td>${nilaiUraian} </td>
-                    <td><span class="${nilaiClass}">${nilaiAkhir}</span> / 100</td>
-                </tr>
-            </tbody>
-        </table>
-    `;
-    
-    resultContent.innerHTML = resultsHtml;
-}
-    
-    function escapeHtml(text) {
-        if (!text) return '';
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-    
-    // Event enter key pada input NIS
-    document.getElementById('searchNIS').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            cariHasilUjian();
+        
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
-    });
+        
+        // Event enter key pada input NIS
+        document.getElementById('searchNIS').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                cariHasilUjian();
+            }
+        });
     </script>
 </body>
 </html>
