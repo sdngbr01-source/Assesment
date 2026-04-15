@@ -43,7 +43,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
         if (role === 'siswa') {
             // CEK JAM AKSES DULU
             if (!isSchoolHourWIB()) {
-                alert('Akses hanya diperbolehkan pada jam 07.00 - 11.00 WIB!');
+                alert('Akses hanya diperbolehkan pada jam <b>sekolah</b>!');
                 return;
             }
             
