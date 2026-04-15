@@ -11,6 +11,26 @@ if (role === 'siswa') {
     document.getElementById('kelasSelect').style.display = 'none';
 }
 
+// Fungsi untuk cek jam akses siswa (07.00 - 11.00 WIB)
+function isSchoolHourWIB() {
+    const now = new Date();
+    // Konversi ke WIB (UTC+7) jika browser pakai UTC
+    // Browser sudah menggunakan waktu lokal sistem, asumsikan WIB
+    let hour = now.getHours();
+    let minute = now.getMinutes();
+    
+    // Jam 07:00 sampai 10:59 (sebelum 11:00)
+    if (hour >= 7 && hour < 11) {
+        return true;
+    }
+    // Bisa juga sampai jam 11:00 tepat
+    // if ((hour === 7 || hour === 8 || hour === 9 || hour === 10) || 
+    //     (hour === 11 && minute === 0)) {
+    //     return true;
+    // }
+    return false;
+}
+
 // Handle login
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -21,6 +41,12 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     
     try {
         if (role === 'siswa') {
+            // CEK JAM AKSES DULU
+            if (!isSchoolHourWIB()) {
+                alert('Akses hanya diperbolehkan pada jam 07.00 - 11.00 WIB!');
+                return;
+            }
+            
             // Cari siswa di Firestore
             const siswaQuery = await usersRef
                 .where('nis', '==', username)
@@ -45,8 +71,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
             window.location.href = 'dashboard-siswa.html';
             
         } else if (role === 'admin') {
-            // Login admin (bisa menggunakan email/password atau custom)
-            // Contoh sederhana: cek username dan password hardcoded
+            // Login admin (TANPA batasan jam)
             if (username === 'admin' && password === '20524756') {
                 sessionStorage.setItem('currentUser', JSON.stringify({
                     id: 'admin1',
