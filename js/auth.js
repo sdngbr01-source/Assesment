@@ -20,7 +20,7 @@ function isSchoolHourWIB() {
     let minute = now.getMinutes();
     
     // Jam 07:00 sampai 10:59 (sebelum 11:00)
-    if (hour >= 7 && hour < 11) {
+    if (hour >= 7 && hour < 12) {
         return true;
     }
     // Bisa juga sampai jam 11:00 tepat
