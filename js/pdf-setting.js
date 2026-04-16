@@ -358,8 +358,7 @@ function getPdfSetting() {
         return {};
     }
 }
-// ============ GENERATE PDF ============
-// ============ GENERATE PDF ============
+// ============ GENERATE PDF (SEMUA SISWA DALAM 1 FILE) ============
 async function generateLembarJawaban() {
     const kelas = getElement('generateKelas')?.value;
     const mapel = getElement('generateMapel')?.value;
@@ -389,15 +388,13 @@ async function generateLembarJawaban() {
             return;
         }
         
-                        let soalMap = new Map(); // key: "examId_nomor"
-        
-        // Ambil semua jawaban untuk mendapatkan examId unik
+        // Ambil semua examId dari jawaban untuk mendapatkan soal
+        let soalMap = new Map();
         const semuaJawabanSnapshot = await answersRef
             .where('kelas', '==', kelas)
             .where('mataPelajaran', '==', mapel)
             .get();
         
-        // Kumpulkan examId unik
         const examIds = new Set();
         semuaJawabanSnapshot.forEach(doc => {
             const data = doc.data();
@@ -426,20 +423,10 @@ async function generateLembarJawaban() {
             }
         }
         
-        console.log('ExamId ditemukan:', [...examIds]);
-        console.log('Jumlah soal di Map:', soalMap.size);
-        
+        // Kumpulkan data semua siswa beserta jawabannya
         const siswaList = [];
-        siswaSnapshot.forEach(doc => {
-            siswaList.push({ id: doc.id, ...doc.data() });
-        });
-        
-        showToast(`📄 Membuat ${siswaList.length} lembar jawaban...`, 'info');
-        
-        // Gunakan loop biasa, biarkan browser handle multiple download
-        // Browser akan meminta izin untuk multiple download
-        for (let i = 0; i < siswaList.length; i++) {
-            const siswa = siswaList[i];
+        for (const doc of siswaSnapshot.docs) {
+            const siswa = { id: doc.id, ...doc.data() };
             
             let jawabanData = null;
             if (typeof answersRef !== 'undefined') {
@@ -455,194 +442,186 @@ async function generateLembarJawaban() {
                 }
             }
             
-            await generateSinglePDF(siswa, kelas, mapel, setting, jawabanData, soalMap);
-            
-            // Delay antar download agar browser tidak kewalahan
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            if ((i + 1) % 5 === 0 || i === siswaList.length - 1) {
-                showToast(`Progress: ${i + 1}/${siswaList.length}`, 'info');
-            }
+            siswaList.push({
+                ...siswa,
+                jawabanData: jawabanData
+            });
         }
         
-        showToast(`✅ Berhasil generate ${siswaList.length} lembar jawaban`, 'success');
+        showToast(`📄 Membuat 1 file PDF untuk ${siswaList.length} siswa...`, 'info');
+        
+        // Generate satu PDF untuk semua siswa
+        await generateAllStudentsPDF(siswaList, kelas, mapel, setting, soalMap);
+        
+        showToast(`✅ Berhasil generate PDF untuk ${siswaList.length} siswa`, 'success');
+        
     } catch (error) {
         console.error('Error generating PDF:', error);
         showToast('❌ Gagal generate PDF: ' + error.message, 'error');
     }
 }
-async function generateSinglePDF(siswa, kelas, mapel, setting, jawabanData, soalMap) {
+
+// Fungsi untuk membuat satu PDF berisi semua siswa
+async function generateAllStudentsPDF(siswaList, kelas, mapel, setting, soalMap) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF('p', 'mm', 'a4');
+    let isFirstPage = true;
     
-    // HEADER - 35mm (3.5 cm)
-    const headerHeight = 35;
-    const headerWarna = setting.headerWarna || '#2c3e50';
-    
-    doc.setFillColor(parseInt(headerWarna.slice(1,3), 16),
-                     parseInt(headerWarna.slice(3,5), 16),
-                     parseInt(headerWarna.slice(5,7), 16));
-    doc.rect(0, 0, 210, headerHeight, 'F');
-    
-    const logoWidth = (parseInt(setting.logoWidth) || 25) / 1.5;
-    const logoHeight = (parseInt(setting.logoHeight) || 25) / 1.5;
-    const logoY = (headerHeight - logoHeight) / 2;
-    
-    if (setting.logoKiriData && setting.logoKiriData.startsWith('data:image')) {
-        try {
-            doc.addImage(setting.logoKiriData, 'JPEG', 8, logoY, logoWidth, logoHeight);
-        } catch (e) {}
-    }
-    
-    if (setting.logoKananData && setting.logoKananData.startsWith('data:image')) {
-        try {
-            doc.addImage(setting.logoKananData, 'JPEG', 210 - 8 - logoWidth, logoY, logoWidth, logoHeight);
-        } catch (e) {}
-    }
-    
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    
-    const sekolahNama = setting.sekolahNama?.split('\n') || ['SEKOLAH'];
-    let textY = 8;
-    sekolahNama.forEach(line => {
-        doc.text(line, 105, textY, { align: 'center' });
-        textY += 4.5;
-    });
-    
-    doc.setFontSize(7);
-    doc.setFont('helvetica', 'normal');
-    
-    const sekolahAlamat = setting.sekolahAlamat?.split('\n') || [];
-    sekolahAlamat.forEach(line => {
-        doc.text(line, 105, textY, { align: 'center' });
-        textY += 3.5;
-    });
-    
-    if (setting.sekolahKota) {
-        doc.text(setting.sekolahKota, 105, textY, { align: 'center' });
-        textY += 3;
-    }
-    
-    if (setting.sekolahTelp || setting.sekolahEmail) {
-        doc.text(`Telp: ${setting.sekolahTelp || '-'} | Email: ${setting.sekolahEmail || '-'}`, 105, textY, { align: 'center' });
-        textY += 3.5;
-    }
-    
-    doc.setFontSize(6);
-    doc.setFont('helvetica', 'italic');
-    const mottoLines = (setting.sekolahMotto || '').split('\n');
-    for (const line of mottoLines) {
-        if (line.trim()) {
-            doc.text(line.trim(), 105, textY, { align: 'center' });
+    for (let idx = 0; idx < siswaList.length; idx++) {
+        const siswa = siswaList[idx];
+        const jawabanData = siswa.jawabanData;
+        
+        // Jika bukan halaman pertama, tambah halaman baru
+        if (!isFirstPage) {
+            doc.addPage();
+        }
+        isFirstPage = false;
+        
+        // ============ HEADER ============
+        const headerHeight = 35;
+        const headerWarna = setting.headerWarna || '#2c3e50';
+        
+        doc.setFillColor(parseInt(headerWarna.slice(1,3), 16),
+                         parseInt(headerWarna.slice(3,5), 16),
+                         parseInt(headerWarna.slice(5,7), 16));
+        doc.rect(0, 0, 210, headerHeight, 'F');
+        
+        const logoWidth = (parseInt(setting.logoWidth) || 25) / 1.5;
+        const logoHeight = (parseInt(setting.logoHeight) || 25) / 1.5;
+        const logoY = (headerHeight - logoHeight) / 2;
+        
+        if (setting.logoKiriData && setting.logoKiriData.startsWith('data:image')) {
+            try {
+                doc.addImage(setting.logoKiriData, 'JPEG', 8, logoY, logoWidth, logoHeight);
+            } catch (e) {}
+        }
+        
+        if (setting.logoKananData && setting.logoKananData.startsWith('data:image')) {
+            try {
+                doc.addImage(setting.logoKananData, 'JPEG', 210 - 8 - logoWidth, logoY, logoWidth, logoHeight);
+            } catch (e) {}
+        }
+        
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'bold');
+        
+        const sekolahNama = setting.sekolahNama?.split('\n') || ['SEKOLAH'];
+        let textY = 8;
+        sekolahNama.forEach(line => {
+            doc.text(line, 105, textY, { align: 'center' });
+            textY += 4.5;
+        });
+        
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'normal');
+        
+        const sekolahAlamat = setting.sekolahAlamat?.split('\n') || [];
+        sekolahAlamat.forEach(line => {
+            doc.text(line, 105, textY, { align: 'center' });
+            textY += 3.5;
+        });
+        
+        if (setting.sekolahKota) {
+            doc.text(setting.sekolahKota, 105, textY, { align: 'center' });
             textY += 3;
         }
-    }
-    
-    doc.setDrawColor(200, 200, 200);
-    doc.line(10, headerHeight - 1, 200, headerHeight - 1);
-    
-    // INFORMASI SISWA
-    const infoStartY = headerHeight + 6;
-    doc.setTextColor(0, 0, 0);
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    doc.text('LEMBAR JAWABAN SISWA', 105, infoStartY, { align: 'center' });
-    
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    
-    let currentY = infoStartY + 7;
-    doc.text(`Nama: ${siswa.nama || '-'}`, 20, currentY);
-    doc.text(`NIS: ${siswa.nis || '-'}`, 20, currentY + 5);
-    doc.text(`Kelas: ${kelas}`, 20, currentY + 10);
-    doc.text(`Mata Pelajaran: ${mapel}`, 20, currentY + 15);
-    doc.text(`Tanggal: ${new Date().toLocaleDateString('id-ID')}`, 20, currentY + 20);
-    
-    // RINGKASAN NILAI
-    if (jawabanData) {
-        const nilaiPG = jawabanData.nilaiPG || 0;
-        const nilaiIsian = jawabanData.nilaiIsian || 0;
-        const nilaiUraian = jawabanData.nilaiUraian || 0;
-        const totalPG = jawabanData.totalPG || 0;
-        const totalIsian = jawabanData.totalIsian || 0;
-        const totalUraian = jawabanData.totalUraian || 0;
         
-        const jumlahDiperoleh = nilaiPG + nilaiIsian + nilaiUraian;
-        const jumlahMaksimal = totalPG + totalIsian + totalUraian;
-        
-        let nilaiAkhir = 0;
-        if (jumlahMaksimal > 0) {
-            nilaiAkhir = (jumlahDiperoleh / jumlahMaksimal) * 100;
-            nilaiAkhir = Math.round(nilaiAkhir);
+        if (setting.sekolahTelp || setting.sekolahEmail) {
+            doc.text(`Telp: ${setting.sekolahTelp || '-'} | Email: ${setting.sekolahEmail || '-'}`, 105, textY, { align: 'center' });
+            textY += 3.5;
         }
         
-        doc.setFont('helvetica', 'bold');
-        doc.text('RINGKASAN NILAI:', 140, currentY);
-        doc.setFont('helvetica', 'normal');
-        doc.text(`PG: ${nilaiPG}`, 140, currentY + 5);
-        doc.text(`Isian: ${nilaiIsian}`, 140, currentY + 10);
-        doc.text(`Uraian: ${nilaiUraian}`, 140, currentY + 15);
-        doc.setFont('helvetica', 'bold');
-        doc.text(`Total: ${nilaiAkhir}`, 140, currentY + 20);
-        doc.setFont('helvetica', 'normal');
-    }
-    
-    // KUMPULKAN JAWABAN
-    // KUMPULKAN JAWABAN
-    let allJawaban = [];
-    
-    if (jawabanData) {
-        const examId = jawabanData.examId;
-        const jumlahSoalPG = jawabanData.jumlahSoal?.pg || 0;
-        const jumlahSoalIsian = jawabanData.jumlahSoal?.isian || 0;
-        const nilaiMaksPG = jumlahSoalPG > 0 ? (jawabanData.totalPG || 0) / jumlahSoalPG : 1;
-        const nilaiMaksIsian = jumlahSoalIsian > 0 ? (jawabanData.totalIsian || 0) / jumlahSoalIsian : 2;
-        
-        // 1. JAWABAN PG - ambil dari jawabanPG
-        if (jawabanData.jawabanPG) {
-            Object.values(jawabanData.jawabanPG).forEach(item => {
-                const nomor = parseInt(item.nomor);
-                const key = `${examId}_${nomor}`;
-                
-                // Ambil soal dari soalMap
-                let soalText = item.soal || '';
-                let kunciJawaban = item.kunci || '-';
-                
-                if (soalMap.has(key)) {
-                    const soal = soalMap.get(key);
-                    soalText = soal.soal;
-                    kunciJawaban = soal.kunci;
-                }
-                
-                const jawabanSiswa = item.jawaban || '-';
-                const isBenar = jawabanSiswa === kunciJawaban;
-                
-                allJawaban.push({
-                    nomor: nomor,
-                    jenis: 'PG',
-                    soal: soalText,
-                    jawaban: jawabanSiswa,
-                    kunci: kunciJawaban,
-                    benar: isBenar,
-                    nilai: isBenar ? nilaiMaksPG : 0,
-                    nilaiMaks: nilaiMaksPG
-                });
-            });
+        doc.setFontSize(6);
+        doc.setFont('helvetica', 'italic');
+        const mottoLines = (setting.sekolahMotto || '').split('\n');
+        for (const line of mottoLines) {
+            if (line.trim()) {
+                doc.text(line.trim(), 105, textY, { align: 'center' });
+                textY += 3;
+            }
         }
         
-        // 2. JAWABAN ISIAN & URAIAN - ambil dari koreksiDetail
-        if (jawabanData.koreksiDetail) {
-            // Proses isian
-            if (jawabanData.koreksiDetail.isian) {
-                Object.values(jawabanData.koreksiDetail.isian).forEach(item => {
+        doc.setDrawColor(200, 200, 200);
+        doc.line(10, headerHeight - 1, 200, headerHeight - 1);
+        
+        // ============ INFORMASI SISWA ============
+        const infoStartY = headerHeight + 6;
+        doc.setTextColor(0, 0, 0);
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'bold');
+        doc.text('LEMBAR JAWABAN SISWA', 105, infoStartY, { align: 'center' });
+        
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'normal');
+        
+        let currentY = infoStartY + 7;
+        
+        // Tambahkan nomor urut siswa
+        doc.text(`No. Urut: ${idx + 1} / ${siswaList.length}`, 20, currentY);
+        currentY += 6;
+        doc.text(`Nama: ${siswa.nama || '-'}`, 20, currentY);
+        currentY += 5;
+        doc.text(`NIS: ${siswa.nis || '-'}`, 20, currentY);
+        currentY += 5;
+        doc.text(`Kelas: ${kelas}`, 20, currentY);
+        currentY += 5;
+        doc.text(`Mata Pelajaran: ${mapel}`, 20, currentY);
+        currentY += 5;
+        doc.text(`Tanggal: ${new Date().toLocaleDateString('id-ID')}`, 20, currentY);
+        
+        // ============ RINGKASAN NILAI ============
+        if (jawabanData) {
+            const nilaiPG = jawabanData.nilaiPG || 0;
+            const nilaiIsian = jawabanData.nilaiIsian || 0;
+            const nilaiUraian = jawabanData.nilaiUraian || 0;
+            const totalPG = jawabanData.totalPG || 0;
+            const totalIsian = jawabanData.totalIsian || 0;
+            const totalUraian = jawabanData.totalUraian || 0;
+            
+            const jumlahDiperoleh = nilaiPG + nilaiIsian + nilaiUraian;
+            const jumlahMaksimal = totalPG + totalIsian + totalUraian;
+            
+            let nilaiAkhir = 0;
+            if (jumlahMaksimal > 0) {
+                nilaiAkhir = Math.round((jumlahDiperoleh / jumlahMaksimal) * 100);
+            }
+            
+            doc.setFont('helvetica', 'bold');
+            doc.text('RINGKASAN NILAI:', 140, currentY - 5);
+            doc.setFont('helvetica', 'normal');
+            doc.text(`PG: ${nilaiPG}`, 140, currentY);
+            doc.text(`Isian: ${nilaiIsian}`, 140, currentY + 5);
+            doc.text(`Uraian: ${nilaiUraian}`, 140, currentY + 10);
+            doc.setFont('helvetica', 'bold');
+            doc.text(`Total: ${nilaiAkhir}`, 140, currentY + 15);
+            doc.setFont('helvetica', 'normal');
+            currentY += 20;
+        } else {
+            currentY += 10;
+            doc.setFont('helvetica', 'italic');
+            doc.setTextColor(150, 150, 150);
+            doc.text('* Belum ada data nilai *', 140, currentY);
+            doc.setTextColor(0, 0, 0);
+            currentY += 15;
+        }
+        
+        // ============ KUMPULKAN JAWABAN ============
+        let allJawaban = [];
+        
+        if (jawabanData) {
+            const examId = jawabanData.examId;
+            const nilaiMaksPG = (jawabanData.totalPG || 0) / (jawabanData.jumlahSoal?.pg || 1);
+            const nilaiMaksIsian = (jawabanData.totalIsian || 0) / (jawabanData.jumlahSoal?.isian || 1);
+            
+            // Jawaban PG
+            if (jawabanData.jawabanPG) {
+                Object.values(jawabanData.jawabanPG).forEach(item => {
                     const nomor = parseInt(item.nomor);
                     const key = `${examId}_${nomor}`;
                     
-                    // Ambil soal dari soalMap
                     let soalText = item.soal || '';
-                    let kunciJawaban = item.kunciJawaban || '-';
+                    let kunciJawaban = item.kunci || '-';
                     
                     if (soalMap.has(key)) {
                         const soal = soalMap.get(key);
@@ -650,195 +629,215 @@ async function generateSinglePDF(siswa, kelas, mapel, setting, jawabanData, soal
                         kunciJawaban = soal.kunci;
                     }
                     
+                    const jawabanSiswa = item.jawaban || '-';
+                    const isBenar = jawabanSiswa === kunciJawaban;
+                    
                     allJawaban.push({
                         nomor: nomor,
-                        jenis: 'Isian',
+                        jenis: 'PG',
                         soal: soalText,
-                        jawaban: item.jawaban || '-',
+                        jawaban: jawabanSiswa,
                         kunci: kunciJawaban,
-                        benar: (item.nilai || 0) > 0,
-                        nilai: item.nilai || 0,
-                        nilaiMaks: nilaiMaksIsian
+                        benar: isBenar,
+                        nilai: isBenar ? nilaiMaksPG : 0,
+                        nilaiMaks: nilaiMaksPG
                     });
                 });
             }
             
-            // Proses uraian
-            if (jawabanData.koreksiDetail.uraian) {
-                Object.values(jawabanData.koreksiDetail.uraian).forEach(item => {
-                    const nomor = parseInt(item.nomor);
-                    const key = `${examId}_${nomor}`;
-                    
-                    // Ambil soal dari soalMap
-                    let soalText = item.soal || '';
-                    let kunciJawaban = item.kunciJawaban || '-';
-                    let nilaiMaksimal = item.nilaiMaksimal || 10;
-                    
-                    if (soalMap.has(key)) {
-                        const soal = soalMap.get(key);
-                        soalText = soal.soal;
-                        kunciJawaban = soal.kunci;
-                        nilaiMaksimal = 10; // atau sesuai soal
-                    }
-                    
-                    allJawaban.push({
-                        nomor: nomor,
-                        jenis: 'Uraian',
-                        soal: soalText,
-                        jawaban: item.jawaban || '-',
-                        kunci: kunciJawaban,
-                        benar: (item.nilai || 0) > 0,
-                        nilai: item.nilai || 0,
-                        nilaiMaks: nilaiMaksimal
+            // Jawaban Isian & Uraian
+            if (jawabanData.koreksiDetail) {
+                if (jawabanData.koreksiDetail.isian) {
+                    Object.values(jawabanData.koreksiDetail.isian).forEach(item => {
+                        const nomor = parseInt(item.nomor);
+                        const key = `${examId}_${nomor}`;
+                        
+                        let soalText = item.soal || '';
+                        let kunciJawaban = item.kunciJawaban || '-';
+                        
+                        if (soalMap.has(key)) {
+                            const soal = soalMap.get(key);
+                            soalText = soal.soal;
+                            kunciJawaban = soal.kunci;
+                        }
+                        
+                        allJawaban.push({
+                            nomor: nomor,
+                            jenis: 'Isian',
+                            soal: soalText,
+                            jawaban: item.jawaban || '-',
+                            kunci: kunciJawaban,
+                            benar: (item.nilai || 0) > 0,
+                            nilai: item.nilai || 0,
+                            nilaiMaks: nilaiMaksIsian
+                        });
                     });
-                });
+                }
+                
+                if (jawabanData.koreksiDetail.uraian) {
+                    Object.values(jawabanData.koreksiDetail.uraian).forEach(item => {
+                        const nomor = parseInt(item.nomor);
+                        const key = `${examId}_${nomor}`;
+                        
+                        let soalText = item.soal || '';
+                        let kunciJawaban = item.kunciJawaban || '-';
+                        let nilaiMaksimal = item.nilaiMaksimal || 10;
+                        
+                        if (soalMap.has(key)) {
+                            const soal = soalMap.get(key);
+                            soalText = soal.soal;
+                            kunciJawaban = soal.kunci;
+                        }
+                        
+                        allJawaban.push({
+                            nomor: nomor,
+                            jenis: 'Uraian',
+                            soal: soalText,
+                            jawaban: item.jawaban || '-',
+                            kunci: kunciJawaban,
+                            benar: (item.nilai || 0) > 0,
+                            nilai: item.nilai || 0,
+                            nilaiMaks: nilaiMaksimal
+                        });
+                    });
+                }
             }
+            
+            allJawaban.sort((a, b) => a.nomor - b.nomor);
         }
         
-        // Urutkan berdasarkan nomor
-        allJawaban.sort((a, b) => a.nomor - b.nomor);
-    }
-    
-    console.log('Total jawaban:', allJawaban.length);
-    console.log('Detail:', allJawaban.map(j => ({nomor: j.nomor, jenis: j.jenis, nilai: j.nilai, kunci: j.kunci})));
-    
-    // TABEL JAWABAN - PERBAIKAN UNTUK SOAL WRAP TEXT
-       // TABEL JAWABAN - PERBAIKAN UNTUK SOAL WRAP TEXT
-    const tableStartY = currentY + 30;
-    const tableData = [];
-    
-    let urutanNomor = 1;  // <--- NOMOR URUT OTOMATIS
-    
-    for (const item of allJawaban) {
-        let statusText = '';
-        if (item.benar === true) {
-            statusText = 'B';
-        } else if (item.benar === false) {
-            statusText = 'S';
+        // ============ TABEL JAWABAN ============
+        const tableStartY = currentY + 10;
+        const tableData = [];
+        let urutanNomor = 1;
+        
+        for (const item of allJawaban) {
+            let statusText = '';
+            if (item.benar === true) statusText = 'B';
+            else if (item.benar === false) statusText = 'S';
+            else statusText = '-';
+            
+            tableData.push([
+                urutanNomor++,
+                item.jenis,
+                item.soal || '',
+                item.jawaban || '-',
+                item.kunci || '-',
+                statusText,
+                item.nilai
+            ]);
+        }
+        
+        if (tableData.length === 0) {
+            tableData.push(['-', '-', 'Belum ada data jawaban', '-', '-', '-', '-']);
+        }
+        
+        doc.autoTable({
+            startY: tableStartY,
+            head: [['No', 'Jenis', 'Soal', 'Jawaban', 'Kunci', 'B/S', 'Nilai']],
+            body: tableData,
+            theme: 'grid',
+            headStyles: { 
+                fillColor: [52, 73, 94],
+                textColor: [255, 255, 255], 
+                fontStyle: 'bold', 
+                halign: 'center', 
+                fontSize: 8,
+                valign: 'middle'
+            },
+            columnStyles: {
+                0: { cellWidth: 8, halign: 'center', valign: 'middle' },
+                1: { cellWidth: 12, halign: 'center', valign: 'middle' },
+                2: { cellWidth: 'auto', halign: 'left', valign: 'middle' },
+                3: { cellWidth: 25, halign: 'left', valign: 'middle' },
+                4: { cellWidth: 15, halign: 'center', valign: 'middle' },
+                5: { cellWidth: 8, halign: 'center', valign: 'middle' },
+                6: { cellWidth: 10, halign: 'center', valign: 'middle' }
+            },
+            styles: { 
+                fontSize: 7, 
+                cellPadding: 2, 
+                lineColor: [180, 180, 180], 
+                overflow: 'linebreak',
+                valign: 'middle'
+            },
+            alternateRowStyles: { fillColor: [245, 245, 245] },
+            margin: { left: 10, right: 10 },
+            rowHeight: 'auto',
+            tableWidth: 'auto'
+        });
+        
+        // ============ KESIMPULAN NILAI ============
+        const finalY = doc.lastAutoTable.finalY + 5;
+        
+        if (jawabanData) {
+            const nilaiPG = jawabanData.nilaiPG || 0;
+            const nilaiIsian = jawabanData.nilaiIsian || 0;
+            const nilaiUraian = jawabanData.nilaiUraian || 0;
+            const totalPG = jawabanData.totalPG || 0;
+            const totalIsian = jawabanData.totalIsian || 0;
+            const totalUraian = jawabanData.totalUraian || 0;
+            
+            const jumlahDiperoleh = nilaiPG + nilaiIsian + nilaiUraian;
+            const jumlahMaksimal = totalPG + totalIsian + totalUraian;
+            
+            let persentase = 0;
+            if (jumlahMaksimal > 0) {
+                persentase = Math.round((jumlahDiperoleh / jumlahMaksimal) * 100);
+            }
+            
+            let predikat = '', predikatWarna = '#000';
+            if (persentase >= 90) { predikat = 'A (Sangat Baik)'; predikatWarna = '#28a745'; }
+            else if (persentase >= 80) { predikat = 'B (Baik)'; predikatWarna = '#17a2b8'; }
+            else if (persentase >= 70) { predikat = 'C (Cukup)'; predikatWarna = '#ffc107'; }
+            else if (persentase >= 60) { predikat = 'D (Kurang)'; predikatWarna = '#fd7e14'; }
+            else { predikat = 'E (Sangat Kurang)'; predikatWarna = '#dc3545'; }
+            
+            doc.setDrawColor(100, 100, 100);
+            doc.setLineWidth(0.3);
+            doc.line(15, finalY - 2, 195, finalY - 2);
+            
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'bold');
+            doc.text('KESIMPULAN NILAI:', 15, finalY);
+            
+            doc.setFontSize(8);
+            doc.setFont('helvetica', 'normal');
+            doc.text(`Nilai Akhir: ${persentase}`, 15, finalY + 5);
+            doc.text(`Persentase: ${persentase}%`, 15, finalY + 10);
+            
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(parseInt(predikatWarna.slice(1,3), 16),
+                             parseInt(predikatWarna.slice(3,5), 16),
+                             parseInt(predikatWarna.slice(5,7), 16));
+            doc.text(`Predikat: ${predikat}`, 15, finalY + 15);
+            doc.setTextColor(0, 0, 0);
+            
+            doc.setFont('helvetica', 'normal');
+            doc.text(`Status: ${jawabanData.statusKoreksi === 'selesai' ? 'Sudah Dikoreksi' : 'Menunggu Koreksi'}`, 15, finalY + 20);
+            if (jawabanData.statusKoreksi === 'selesai') {
+                doc.text(`Dikoreksi oleh: ${jawabanData.dikoreksiOleh || '-'}`, 15, finalY + 25);
+            }
+            
+            // Tanda tangan (hanya di halaman terakhir atau setiap halaman? opsional)
+            if (idx === siswaList.length - 1) {
+                doc.setFontSize(7);
+                doc.text('Mengetahui,', 140, finalY + 5);
+                doc.text('Guru Mata Pelajaran', 140, finalY + 10);
+                doc.text('_________________________', 140, finalY + 16);
+                doc.text(`(${mapel})`, 140, finalY + 21);
+                doc.text('Orang Tua/Wali,', 140, finalY + 30);
+                doc.text('_________________________', 140, finalY + 36);
+            }
         } else {
-            statusText = '-';
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'italic');
+            doc.setTextColor(128, 128, 128);
+            doc.text('* Belum ada data nilai untuk ujian ini *', 105, finalY + 10, { align: 'center' });
         }
-        
-        tableData.push([
-            urutanNomor++,  // <--- PAKAI NOMOR URUT, BUKAN item.nomor
-            item.jenis,
-            item.soal || '',
-            item.jawaban || '-',
-            item.kunci || '-',
-            statusText,
-            item.nilai
-        ]);
     }
     
-    if (tableData.length === 0) {
-        tableData.push(['-', '-', 'Belum ada data jawaban', '-', '-', '-', '-']);
-    }
-    
-    // Konfigurasi autoTable yang benar untuk wrap text
-    doc.autoTable({
-        startY: tableStartY,
-        head: [['No', 'Jenis', 'Soal', 'Jawaban', 'Kunci', 'B/S', 'Nilai']],
-        body: tableData,
-        theme: 'grid',
-        headStyles: { 
-            fillColor: [52, 73, 94],
-            textColor: [255, 255, 255], 
-            fontStyle: 'bold', 
-            halign: 'center', 
-            fontSize: 8,
-            valign: 'middle'
-        },
-        // Kunci: Gunakan lebar tetap untuk semua kolom agar wrap bekerja
-               columnStyles: {
-            0: { cellWidth: 'auto', halign: 'center', valign: 'middle' },    // No - 6mm
-            1: { cellWidth: 'auto', halign: 'center', valign: 'middle' },   // Jenis - 10mm
-            2: { cellWidth: 'auto', halign: 'left', valign: 'middle' }, // Soal - auto
-            3: { cellWidth: 'auto', halign: 'left', valign: 'middle' },     // Jawaban - 22mm
-            4: { cellWidth: 'auto', halign: 'center', valign: 'middle' },   // Kunci - 15mm
-            5: { cellWidth: 'auto', halign: 'center', valign: 'middle' },    // B/S - 7mm
-            6: { cellWidth: 'auto', halign: 'center', valign: 'middle' }    // Nilai - 10mm
-        },
-        styles: { 
-            fontSize: 7, 
-            cellPadding: 2.5, 
-            lineColor: [180, 180, 180], 
-            overflow: 'linebreak',  // Memaksa wrap text
-            valign: 'middle'
-        },
-        alternateRowStyles: { fillColor: [245, 245, 245] },
-        margin: { left: 10, right: 10 },
-        // Tambahan untuk memastikan wrap bekerja
-        rowHeight: 'auto',
-        tableWidth: 'auto'
-    });
-    
-    // KESIMPULAN NILAI
-    const finalY = doc.lastAutoTable.finalY + 8;
-    
-    if (jawabanData) {
-        const nilaiPG = jawabanData.nilaiPG || 0;
-        const nilaiIsian = jawabanData.nilaiIsian || 0;
-        const nilaiUraian = jawabanData.nilaiUraian || 0;
-        const totalPG = jawabanData.totalPG || 0;
-        const totalIsian = jawabanData.totalIsian || 0;
-        const totalUraian = jawabanData.totalUraian || 0;
-        
-        const jumlahDiperoleh = nilaiPG + nilaiIsian + nilaiUraian;
-        const jumlahMaksimal = totalPG + totalIsian + totalUraian;
-        
-        let persentase = 0;
-        if (jumlahMaksimal > 0) {
-            persentase = Math.round((jumlahDiperoleh / jumlahMaksimal) * 100);
-        }
-        
-        let predikat = '', predikatWarna = '';
-        if (persentase >= 90) { predikat = 'A (Sangat Baik)'; predikatWarna = '#28a745'; }
-        else if (persentase >= 80) { predikat = 'B (Baik)'; predikatWarna = '#17a2b8'; }
-        else if (persentase >= 70) { predikat = 'C (Cukup)'; predikatWarna = '#ffc107'; }
-        else if (persentase >= 60) { predikat = 'D (Kurang)'; predikatWarna = '#fd7e14'; }
-        else { predikat = 'E (Sangat Kurang)'; predikatWarna = '#dc3545'; }
-        
-        doc.setDrawColor(100, 100, 100);
-        doc.setLineWidth(0.3);
-        doc.line(15, finalY - 3, 195, finalY - 3);
-        
-        doc.setFontSize(9);
-        doc.setFont('helvetica', 'bold');
-        doc.text('KESIMPULAN NILAI:', 15, finalY);
-        
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'normal');
-        doc.text(`Total Nilai: ${persentase}`, 15, finalY + 5);
-        doc.text(`Persentase: ${persentase}%`, 15, finalY + 10);
-        
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(parseInt(predikatWarna.slice(1,3), 16),
-                         parseInt(predikatWarna.slice(3,5), 16),
-                         parseInt(predikatWarna.slice(5,7), 16));
-        doc.text(`Predikat: ${predikat}`, 15, finalY + 15);
-        doc.setTextColor(0, 0, 0);
-        
-        doc.setFont('helvetica', 'normal');
-        doc.text(`Status: ${jawabanData.statusKoreksi === 'selesai' ? 'Sudah Dikoreksi' : 'Menunggu Koreksi'}`, 15, finalY + 20);
-        if (jawabanData.statusKoreksi === 'selesai') {
-            doc.text(`Dikoreksi oleh: ${jawabanData.dikoreksiOleh || '-'}`, 15, finalY + 25);
-        }
-        
-        doc.setFontSize(7);
-        doc.text('Mengetahui,', 140, finalY + 5);
-        doc.text('Guru Mata Pelajaran', 140, finalY + 10);
-        doc.text('_________________________', 140, finalY + 16);
-        doc.text(`(${mapel})`, 140, finalY + 21);
-        doc.text('Orang Tua/Wali,', 140, finalY + 30);
-        doc.text('_________________________', 140, finalY + 36);
-    } else {
-        doc.setFontSize(9);
-        doc.setFont('helvetica', 'italic');
-        doc.setTextColor(128, 128, 128);
-        doc.text('* Belum ada data nilai untuk ujian ini *', 105, finalY, { align: 'center' });
-    }
-    
-    // FOOTER
+    // ============ FOOTER (nomor halaman) ============
     const pageCount = doc.internal.getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
@@ -850,7 +849,8 @@ async function generateSinglePDF(siswa, kelas, mapel, setting, jawabanData, soal
         doc.line(10, 285, 200, 285);
     }
     
-    doc.save(`Lembar_Jawaban_${kelas}_${mapel}_${siswa.nama || siswa.nis || 'siswa'}.pdf`);
+    // Simpan PDF dengan nama file yang mencerminkan kelas dan mapel
+    doc.save(`Lembar_Jawaban_Kelas_${kelas}_${mapel}_${new Date().toISOString().slice(0,10)}.pdf`);
 }
 
 
